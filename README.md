@@ -39,7 +39,7 @@ Project folders:
 - `src/` — Raw takes and clips.
 - `work/` — Generated intermediate files: envelopes (`env/`), transcripts, `edl.json`, `program.json`, `edits.json`, `subtitles.json`, `subtitles.srt`, `proxy.mp4`, `prog.wav`.
 - `scene/` — Interactive web studio and HTML motion-graphics template (copied from `template/`).
-- `assets/` — Uploaded audio (`.mp3`, `.wav`), image overlays (`.png`, `.jpeg`), and video clips (`.mp4`).
+- `assets/` — Uploaded media assets (`.mp3`, `.wav`, `.mp4`, `.webm`, `.png`, `.jpg`, `.jpeg`, `.webp`).
 - `out/` — Final renders (`out/FINAL.mp4`).
 
 ---
@@ -88,7 +88,7 @@ Key Features:
 - **Two-way sync via `work/edits.json`**: Changes in the browser are written directly to disk via REST endpoints (`GET/POST /api/edits`).
 - **20-step Undo / Redo**: Keyboard shortcuts (`Ctrl+Z`, `Ctrl+Y`) and header buttons.
 - **Normalized `0..1` Drag & Resize Bounding Boxes**: Easily position and scale subtitle boxes and media overlays.
-- **Asset Tray**: Drag-and-drop file upload for `.mp3`, `.wav`, `.png`, `.jpeg`, and `.mp4` into `assets/` via `POST /api/assets`.
+- **Asset Tray**: Drag-and-drop file upload for supported assets (`.mp3`, `.wav`, `.mp4`, `.webm`, `.png`, `.jpg`, `.jpeg`, `.webp`) into `assets/` via `POST /api/assets`.
 - **Speed Segment Editor**: Add, adjust, or remove speed ranges (`0.25x` to `4.0x`) directly on the timeline.
 - **Live Sound Effects**: Audition synthesized math-based sound effects live in the browser.
 
@@ -168,7 +168,7 @@ python -m pip install -r requirements.txt
    - `work/edits.json` ile çift yönlü anlık senkronizasyon.
    - 20 adımlı Geri Al / Yinele (Undo/Redo: `Ctrl+Z`, `Ctrl+Y`).
    - Normalleştirilmiş `0..1` koordinatlarıyla sürükle-bırak ve yeniden boyutlandırma tutamaçları.
-   - `.mp3`, `.wav`, `.png`, `.jpeg`, `.mp4` dosyaları için sürükle-bırak Medya Tepsisi (Asset Tray).
+   - Desteklenen medya dosyaları (`.mp3`, `.wav`, `.mp4`, `.webm`, `.png`, `.jpg`, `.jpeg`, `.webp`) için sürükle-bırak Medya Tepsisi (Asset Tray).
    - Zaman çizelgesinde kesit hız düzenleyici (`0.25x` - `4.0x`).
    - Canlı matematiksel ses efektleri dinleme ve yerleştirme.
 7. **Chrome Render & Miksaj (`scripts/render.mjs` & `scripts/mix.py`):** `?still` modunda başsız Chrome ile kare kare render alır; konuşma sesini, matematiksel SFX'leri ve özel ses parçalarını birleştirerek `out/FINAL.mp4` çıktısını üretir.

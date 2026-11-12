@@ -32,7 +32,7 @@ project/
                     subtitles.json, subtitles.srt,
                     proxy.mp4, prog.wav, backup/
   scene/          Motion graphics and interactive studio web app (copied from template/)
-  assets/         User assets: custom .mp3/.wav audio, .png/.jpeg images, .mp4 video overlays
+  assets/         User assets: .mp3, .wav, .mp4, .webm, .png, .jpg, .jpeg, .webp
   out/            Final rendered videos and frames (e.g. out/FINAL.mp4)
 ```
 
@@ -46,7 +46,7 @@ Keep the project outside cloud-synced folders (Dropbox, iCloud Drive, OneDrive) 
 Extracts audio from raw takes, calculates a 10 ms RMS energy envelope (`work/env/<clip>.npy`), splits each clip at natural pauses, and runs local English word-timestamp transcription via `faster-whisper` (or `whisperkit-cli` on Apple Silicon). Chunking at pauses prevents Whisper from dropping repeated words or hallucinations during retakes.
 
 ```bash
-python3 scripts/transcribe.py --project . src/*.mp4 --lang en
+python scripts/transcribe.py --project . src/*.mp4 --lang en
 ```
 Outputs:
 - `work/transcripts/<clip>.json` and `<clip>.txt` with numbered utterances and word times.
@@ -57,8 +57,8 @@ Outputs:
 Generates an automatic Edit Decision List (`work/edl.json`) from the transcripts and energy envelope, removing silences, false starts, and retakes. Optionally integrates with `auto-editor` for advanced audio-based jump-cutting.
 
 ```bash
-python3 scripts/auto_cut.py --project .                  # Automatic EDL generation
-python3 scripts/auto_cut.py --project . --use-auto-editor # Optional auto-editor integration
+python scripts/auto_cut.py --project .                  # Automatic EDL generation
+python scripts/auto_cut.py --project . --use-auto-editor # Optional auto-editor integration
 ```
 Outputs:
 - `work/edl.json` containing selected utterance ranges, target pace (`tight`, `natural`, `relaxed`), and optional initial speed settings.
@@ -67,7 +67,7 @@ Outputs:
 Converts `work/edl.json` into a frame-accurate `work/program.json`. Snaps cut points to the nearest measured word boundaries using the 10 ms energy envelope so speech is never clipped. Incorporates segment speed adjustments specified in `work/edl.json` (per-cut `"speed"`) and `work/edits.json` (`"speed_ranges"`).
 
 ```bash
-python3 scripts/cuts.py --project .
+python scripts/cuts.py --project .
 ```
 Outputs:
 - `work/program.json` (frame-accurate cut list with scaled timings, speed factors, and chapter markers).
@@ -77,7 +77,7 @@ Outputs:
 Chunks speech into punchy 1-to-3 word subtitle groups ideal for TikTok, Instagram Reels, and YouTube Shorts. Subtitles do not use distracting karaoke color transitions. Automatically breaks on sentence punctuation (`.`, `!`, `?`, `,`, `:`, `;`), pauses exceeding 250 ms, and respects custom word overrides defined in `work/edits.json`.
 
 ```bash
-python3 scripts/subtitles.py --project .
+python scripts/subtitles.py --project .
 ```
 Outputs:
 - `work/subtitles.json` (structured cue array with `start`, `end`, and `text` in program time).
@@ -87,8 +87,8 @@ Outputs:
 Assembles sample-exact audio and frame-exact video according to `work/program.json`. Audio slices are extracted at 48 kHz with micro-fades (4 ms in, 15 ms out) to eliminate clicks. Speed adjustments use pitch-preserving FFmpeg `atempo` filter chains for audio and `setpts` for video. One linear gain is applied to normalize dialogue loudness.
 
 ```bash
-python3 scripts/build.py --project . audio video         # Builds work/prog.wav and work/proxy.mp4
-python3 scripts/verify.py --project .                     # Verifies cut joins to catch clipped words
+python scripts/build.py --project . audio video         # Builds work/prog.wav and work/proxy.mp4
+python scripts/verify.py --project .                     # Verifies cut joins to catch clipped words
 ```
 Outputs:
 - `work/prog.wav` (clean 48 kHz dialogue track).
@@ -98,13 +98,13 @@ Outputs:
 Launches the Canva/CapCut-style interactive editor at `http://127.0.0.1:5600/scene/`.
 
 ```bash
-python3 scripts/serve.py --project . --port 5600
+python scripts/serve.py --project . --port 5600
 ```
 Key Studio Features:
 - **Two-Way Sync via `work/edits.json`:** Every visual change made in the browser studio is immediately saved to disk; external edits to `work/edits.json` update the studio live via `GET /api/edits` and `POST /api/edits`.
 - **20-Step Undo / Redo:** Full history state stack (`Ctrl+Z` / `Ctrl+Y`).
 - **Normalized Drag & Resize Bounding Boxes:** Visual handles with `0..1` normalized coordinates for positioning subtitles and media overlays across any aspect ratio.
-- **Asset Tray:** Direct drag-and-drop file upload for custom `.mp3`, `.wav`, `.png`, `.jpeg`, and `.mp4` assets into `assets/` via `POST /api/assets`.
+- **Asset Tray:** Direct drag-and-drop file upload for supported media assets (`.mp3`, `.wav`, `.mp4`, `.webm`, `.png`, `.jpg`, `.jpeg`, `.webp`) into `assets/` via `POST /api/assets`.
 - **Speed Segment Editor:** Add and tweak speed ranges (`0.25x` to `4.0x`) directly on the timeline.
 - **Subtitles Inspector:** Customize position, font size, uppercase transform, and word replacement overrides.
 - **Sound Effects Library:** Audition and preview mathematical SFX synthesized via `scripts/sfx.py`.
@@ -114,16 +114,16 @@ Renders the motion graphics, subtitle overlays, and visual effects frame-exact i
 
 ```bash
 # Render high-resolution video background:
-python3 scripts/build.py --project . video --final
+python scripts/build.py --project . video --final
 
 # Headless Chrome frame-by-frame render:
 node scripts/render.mjs "http://127.0.0.1:5600/scene/?src=../work/prog-final.mp4" --out out/frames --workers 4 --dpr 2
 
 # Mix audio (voice + sfx + custom audio clips) and mux final MP4:
-python3 scripts/mix.py --project . --video out/frames --out out/FINAL.mp4
+python scripts/mix.py --project . --video out/frames --out out/FINAL.mp4
 
 # Check loudness standards (target -14 LUFS, true peak ceiling -1 dBTP):
-python3 scripts/loudness.py out/FINAL.mp4
+python scripts/loudness.py out/FINAL.mp4
 ```
 Outputs:
 - `out/FINAL.mp4` (production-ready high-bitrate video).

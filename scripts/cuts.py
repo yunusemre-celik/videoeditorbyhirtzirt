@@ -41,11 +41,17 @@ def clamp_speed(val: float) -> float:
     return float(np.clip(v, 0.25, 4.0))
 
 
-def apply_speed_ranges_to_pieces(pieces: list[dict], words: list[list], speed_ranges: list[dict], fps: int) -> tuple[list[dict], list[list], int]:
-    """Split and scale pieces and word timestamps across program speed ranges.
+def apply_speed_ranges_to_pieces(
+    pieces: list[dict],
+    words: list[list],
+    speed_ranges: list[dict],
+    fps: int,
+    chapters: list[dict] | None = None,
+) -> tuple[list[dict], list[list], int]:
+    """Split and scale pieces, word timestamps, and chapter markers across program speed ranges.
     
     speed_ranges: [{"id": str, "start": float, "end": float, "speed": float}] in initial program seconds.
-    Returns (new_pieces, new_words, total_pf).
+    Returns (new_pieces, new_words, total_pf). If chapters is provided, mutates ch['time'] and ch['frame'] in-place.
     """
     if not speed_ranges:
         total_pf = sum(int(p.get("pf_len", p["b"] - p["a"])) for p in pieces)
@@ -142,6 +148,11 @@ def apply_speed_ranges_to_pieces(pieces: list[dict], words: list[list], speed_ra
         nw[0] = round(_map_time(float(w[0])), 3)
         nw[1] = round(_map_time(float(w[1])), 3)
         new_words.append(nw)
+
+    if chapters:
+        for ch in chapters:
+            ch['time'] = round(_map_time(float(ch['time'])), 3)
+            ch['frame'] = int(round(ch['time'] * fps))
 
     return new_pieces, new_words, current_new_pf
 
@@ -306,7 +317,7 @@ def build(project):
         edits = load_json(edits_path)
         speed_ranges = edits.get('speed_ranges', [])
         if speed_ranges:
-            pieces, words, pf = apply_speed_ranges_to_pieces(pieces, words, speed_ranges, fps)
+            pieces, words, pf = apply_speed_ranges_to_pieces(pieces, words, speed_ranges, fps, chapters=chapters)
             words.sort()
             for e in entries:
                 e['pieces'] = []

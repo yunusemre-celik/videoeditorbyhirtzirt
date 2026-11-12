@@ -319,12 +319,16 @@
           const targetTime = Math.max(0, t - ov.start + (ov.trim_start || 0));
           if (Math.abs(el.currentTime - targetTime) > 0.001) {
             await new Promise((res) => {
-              el.addEventListener('seeked', res, { once: true });
+              const timer = setTimeout(res, 500);
+              el.addEventListener('seeked', () => { clearTimeout(timer); res(); }, { once: true });
               el.currentTime = targetTime;
             });
           }
           if (el.readyState < 2) {
-            await new Promise((res) => el.addEventListener('canplay', res, { once: true }));
+            await new Promise((res) => {
+              const timer = setTimeout(res, 500);
+              el.addEventListener('canplay', () => { clearTimeout(timer); res(); }, { once: true });
+            });
           }
         }
       }

@@ -26,7 +26,7 @@
       const wText = String(w[2]).trim();
 
       const reachedLimit = current.length >= MAX_WORDS;
-      const cleanWord = wText.replace(/["']+$/g, '');
+      const cleanWord = wText.replace(/["'“”‘’]+$/g, '');
       const punctHit = /[.,!?;:]$/.test(cleanWord);
       let pauseHit = false;
       if (i + 1 < validWords.length) {
@@ -42,7 +42,11 @@
         const cueId = `sub_${cueIdx}`;
         const start = Math.round(Number(current[0][0]) * 1000) / 1000;
         const rawEnd = Number(current[current.length - 1][1]);
-        const end = Math.round(Math.max(rawEnd, start + MIN_DURATION_SEC) * 1000) / 1000;
+        let end = Math.round(Math.max(rawEnd, start + MIN_DURATION_SEC) * 1000) / 1000;
+        const nextWordStart = i + 1 < validWords.length ? Number(validWords[i + 1][0]) : null;
+        if (nextWordStart !== null && nextWordStart > start) {
+          end = Math.min(end, Math.round(nextWordStart * 1000) / 1000);
+        }
 
         let text = current.map((item) => String(item[2]).trim()).join(' ');
         if (overrides && overrides[cueId] !== undefined) {

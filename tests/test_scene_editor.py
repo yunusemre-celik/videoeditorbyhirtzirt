@@ -122,6 +122,19 @@ def test_chunk_three_words_edge_cases_in_node():
       throw new Error('Min duration fallback failed: ' + cuesFast[0].end);
     }
 
+    // 6. Curly quotes and clamped min duration test
+    const wordsCurly = [
+      [0.0, 0.05, '“Wait!”'],
+      [0.1, 0.4, '‘Go?’']
+    ];
+    const cuesCurly = window.chunkThreeWords(wordsCurly);
+    if (cuesCurly.length !== 2) {
+      throw new Error('Curly quote break failed: ' + JSON.stringify(cuesCurly));
+    }
+    if (cuesCurly[0].end !== 0.1) {
+      throw new Error('Clamped min duration failed: ' + cuesCurly[0].end);
+    }
+
     console.log('CHUNKER_EDGES_OK');
     """
     proc = subprocess.run(["node", "-e", node_script], cwd=str(root), capture_output=True, text=True)

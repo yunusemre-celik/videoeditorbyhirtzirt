@@ -186,7 +186,7 @@ def test_mix_audio_buffers_sfx_and_ceiling():
 
 def test_serve_range_request_partial_content(tmp_path):
     test_file = tmp_path / "test.bin"
-    test_data = b"0123456789abcdefghijklmnopqrstuvwxyz"
+    test_data = b"0123456789abcdefghijklmnopqrstuvwxyz" * 30  # 1080 bytes (> 500 bytes)
     test_file.write_bytes(test_data)
 
     srv = create_server(str(tmp_path), port=0)
@@ -201,6 +201,12 @@ def test_serve_range_request_partial_content(tmp_path):
             assert r.headers.get("Content-Range") == f"bytes 4-9/{len(test_data)}"
             body = r.read()
             assert body == test_data[4:10]
+
+        # Inverted range test (start > end, with start < size) returns HTTP 416
+        req_inverted = urllib.request.Request(f"{base}/test.bin", headers={"Range": "bytes=500-100"})
+        with pytest.raises(urllib.error.HTTPError) as exc_info:
+            urllib.request.urlopen(req_inverted)
+        assert exc_info.value.code == 416
     finally:
         srv.shutdown()
         srv.server_close()

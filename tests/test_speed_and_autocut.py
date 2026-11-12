@@ -24,7 +24,12 @@ def test_apply_speed_ranges_scales_frames_and_words():
     ]
     # Speed up 2.0s..6.0s by 2.0x (4s of source becomes 2s in program -> total duration 8s = 240 frames)
     speed_ranges = [{"id": "s1", "start": 2.0, "end": 6.0, "speed": 2.0}]
-    new_pieces, new_words, total_pf = apply_speed_ranges_to_pieces(pieces, words, speed_ranges, fps)
+    chapters = [
+        {"title": "Intro", "frame": 0, "time": 0.0},
+        {"title": "Mid", "frame": 120, "time": 4.0},
+        {"title": "Outro", "frame": 240, "time": 8.0},
+    ]
+    new_pieces, new_words, total_pf = apply_speed_ranges_to_pieces(pieces, words, speed_ranges, fps, chapters=chapters)
     assert total_pf == 240
     assert len(new_pieces) == 3
     assert [p["speed"] for p in new_pieces] == [1.0, 2.0, 1.0]
@@ -35,6 +40,10 @@ def test_apply_speed_ranges_scales_frames_and_words():
     assert abs(new_words[1][1] - 4.0) < 0.05
     # "end" was at 8.0..9.0 -> shifted earlier by 2.0s -> 6.0..7.0
     assert abs(new_words[2][0] - 6.0) < 0.05
+    # Chapter remapping:
+    assert chapters[0]["time"] == 0.0 and chapters[0]["frame"] == 0
+    assert abs(chapters[1]["time"] - 3.0) < 0.05 and chapters[1]["frame"] == 90
+    assert abs(chapters[2]["time"] - 6.0) < 0.05 and chapters[2]["frame"] == 180
 
 
 def test_atempo_chain_handles_extreme_speeds():

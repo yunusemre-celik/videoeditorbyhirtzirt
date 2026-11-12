@@ -180,8 +180,10 @@ class RangeHandler(http.server.SimpleHTTPRequestHandler):
         work_dir = os.path.join(self.project_dir, 'work')
         os.makedirs(work_dir, exist_ok=True)
         edits_path = os.path.join(work_dir, 'edits.json')
-        with open(edits_path, 'w', encoding='utf-8') as f:
+        tmp_path = edits_path + '.tmp'
+        with open(tmp_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, edits_path)
 
         self._send_json({'ok': True, 'edits': data})
 
@@ -296,7 +298,7 @@ class RangeHandler(http.server.SimpleHTTPRequestHandler):
             return super().send_head()
         start = int(m.group(1)) if m.group(1) else max(0, size - int(m.group(2) or 0))
         end = int(m.group(2)) if m.group(1) and m.group(2) else size - 1
-        if start >= size:
+        if start >= size or start > end:
             self.send_error(416)
             return None
         end = min(end, size - 1)

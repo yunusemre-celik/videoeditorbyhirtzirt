@@ -56,7 +56,7 @@ def chunk_three_words(
 
         # Check closing conditions
         reached_limit = len(current) >= max_words
-        punct_hit = any(w_text.rstrip('"\'').endswith(p) for p in PUNCT_BREAK)
+        punct_hit = any(w_text.rstrip('"\'“”‘’').endswith(p) for p in PUNCT_BREAK)
         pause_hit = False
         if i + 1 < len(valid_words):
             next_start = float(valid_words[i + 1][0])
@@ -70,6 +70,9 @@ def chunk_three_words(
             start = round(float(current[0][0]), 3)
             raw_end = float(current[-1][1])
             end = round(max(raw_end, start + MIN_DURATION_SEC), 3)
+            next_word_start = float(valid_words[i + 1][0]) if i + 1 < len(valid_words) else None
+            if next_word_start is not None and next_word_start > start:
+                end = min(end, round(next_word_start, 3))
 
             text = " ".join(str(item[2]).strip() for item in current)
             if overrides and cue_id in overrides:

@@ -124,3 +124,18 @@ def test_chunk_three_words_breaks_on_quote_wrapped_punctuation():
     assert cues[0]["text"] == '"Wait."'
     assert cues[1]["text"] == "Go"
 
+
+def test_chunk_three_words_breaks_on_curly_quotes_and_clamps_min_duration():
+    words = [
+        [0.0, 0.05, '“Wait!”'],
+        [0.1, 0.4, '‘Go?’'],
+        [0.45, 0.8, 'Done.'],
+    ]
+    cues = chunk_three_words(words)
+    assert len(cues) == 3
+    assert cues[0]["text"] == '“Wait!”'
+    # Short duration extended by 0.2s is clamped to next word start (0.1s)
+    assert cues[0]["end"] == 0.1
+    assert cues[1]["text"] == '‘Go?’'
+    assert cues[2]["text"] == 'Done.'
+

@@ -13,6 +13,7 @@ import glob
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 
@@ -169,53 +170,55 @@ def main():
     a = ap.parse_args()
     root, work = project_paths(a.project)
     tmp = tempfile.mkdtemp(prefix='ve-mix-')
+    try:
+        if os.path.isdir(a.video):
+            parts = sorted(glob.glob(os.path.join(a.video, 'part_*.mp4')),
+                           key=lambda p: int(re.search(r'part_(\d+)', p).group(1)))
+            if not parts:
+                sys.exit(f'no part_*.mp4 in {a.video}')
+            lst = os.path.join(tmp, 'parts.txt')
+            with open(lst, 'w') as f:
+                f.write(''.join(f"file '{os.path.abspath(p)}'\n" for p in parts))
+            video_in = ['-f', 'concat', '-safe', '0', '-i', lst]
+            cues_path = os.path.join(a.video, 'sfx.json')
+        else:
+            video_in = ['-i', a.video]
+            cues_path = os.path.join(os.path.dirname(a.video), 'sfx.json')
 
-    if os.path.isdir(a.video):
-        parts = sorted(glob.glob(os.path.join(a.video, 'part_*.mp4')),
-                       key=lambda p: int(re.search(r'part_(\d+)', p).group(1)))
-        if not parts:
-            sys.exit(f'no part_*.mp4 in {a.video}')
-        lst = os.path.join(tmp, 'parts.txt')
-        with open(lst, 'w') as f:
-            f.write(''.join(f"file '{os.path.abspath(p)}'\n" for p in parts))
-        video_in = ['-f', 'concat', '-safe', '0', '-i', lst]
-        cues_path = os.path.join(a.video, 'sfx.json')
-    else:
-        video_in = ['-i', a.video]
-        cues_path = os.path.join(os.path.dirname(a.video), 'sfx.json')
+        voice = decode(os.path.join(work, 'prog.wav'), SR, 2).astype(np.float64)
+        cues = []
+        if not a.no_sfx and os.path.exists(cues_path):
+            with open(cues_path, encoding='utf-8') as f:
+                cues = json.load(f)
 
-    voice = decode(os.path.join(work, 'prog.wav'), SR, 2).astype(np.float64)
-    cues = []
-    if not a.no_sfx and os.path.exists(cues_path):
-        with open(cues_path, encoding='utf-8') as f:
-            cues = json.load(f)
+        audio_clips = []
+        edits_path = os.path.join(work, 'edits.json')
+        if not a.no_sfx and os.path.exists(edits_path):
+            try:
+                with open(edits_path, encoding='utf-8') as f:
+                    edits = json.load(f)
+                    audio_clips = edits.get('audio_clips', [])
+            except Exception:
+                audio_clips = []
 
-    audio_clips = []
-    edits_path = os.path.join(work, 'edits.json')
-    if not a.no_sfx and os.path.exists(edits_path):
-        try:
-            with open(edits_path, encoding='utf-8') as f:
-                edits = json.load(f)
-                audio_clips = edits.get('audio_clips', [])
-        except Exception:
-            audio_clips = []
+        mix = mix_audio_buffers(voice, cues, audio_clips, root, sfx_gain=a.sfx_gain, ceiling=a.ceiling)
 
-    mix = mix_audio_buffers(voice, cues, audio_clips, root, sfx_gain=a.sfx_gain, ceiling=a.ceiling)
-
-    wav = os.path.join(tmp, 'mix.wav')
-    write_wav(wav, mix)
-    i, tp, lra = loudness(wav)
-    if tp > a.ceiling:
-        g = a.ceiling - tp - 0.1
-        mix *= 10 ** (g / 20)
+        wav = os.path.join(tmp, 'mix.wav')
         write_wav(wav, mix)
-        print(f'note: effects pushed the true peak to {tp:.1f} dBTP; whole mix lowered by {-g:.1f} dB')
         i, tp, lra = loudness(wav)
+        if tp > a.ceiling:
+            g = a.ceiling - tp - 0.1
+            mix *= 10 ** (g / 20)
+            write_wav(wav, mix)
+            print(f'note: effects pushed the true peak to {tp:.1f} dBTP; whole mix lowered by {-g:.1f} dB')
+            i, tp, lra = loudness(wav)
 
-    ffmpeg(*video_in, '-i', wav, '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '320k',
-           '-shortest', '-movflags', '+faststart', a.out)
-    total_effects = len(cues) + len(audio_clips)
-    print(f'{a.out}: {total_effects} effects, {i:.1f} LUFS, true peak {tp:.1f} dBTP, LRA {lra:.1f} LU')
+        ffmpeg(*video_in, '-i', wav, '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '320k',
+               '-shortest', '-movflags', '+faststart', a.out)
+        total_effects = len(cues) + len(audio_clips)
+        print(f'{a.out}: {total_effects} effects, {i:.1f} LUFS, true peak {tp:.1f} dBTP, LRA {lra:.1f} LU')
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == '__main__':
