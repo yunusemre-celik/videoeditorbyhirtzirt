@@ -47,10 +47,35 @@ body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: anti
   position: absolute;
   pointer-events: auto;
   transform: translate(-50%, -50%);
-  object-fit: contain;
   cursor: move;
   user-select: none;
+  box-sizing: border-box;
 }
+.media-overlay-item > img,
+.media-overlay-item > video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+}
+.media-overlay-item.selected {
+  outline: 2px solid #3d8bff;
+}
+.media-overlay-item .resizer {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: #ffffff;
+  border: 2px solid #3d8bff;
+  border-radius: 50%;
+  pointer-events: auto;
+  z-index: 50;
+}
+.resizer.tl { top: -6px; left: -6px; cursor: nwse-resize; }
+.resizer.tr { top: -6px; right: -6px; cursor: nesw-resize; }
+.resizer.bl { bottom: -6px; left: -6px; cursor: nesw-resize; }
+.resizer.br { bottom: -6px; right: -6px; cursor: nwse-resize; }
 
 /* ---------- 3-word dynamic subtitles box ---------- */
 #subtitles-box {
@@ -152,6 +177,8 @@ body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: anti
 body.still-mode #hud,
 body.still-mode #editor-ui,
 body.still-mode .selection-box,
-body.still-mode .editor-handle {
+body.still-mode .editor-handle,
+body.still-mode .resizer,
+.still-mode .resizer {
   display: none !important;
 }

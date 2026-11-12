@@ -167,22 +167,31 @@
     overlays.forEach((ov) => {
       let el = overlaysLayer.querySelector(`[data-id="${ov.id}"]`);
       if (!el) {
+        el = document.createElement('div');
+        el.className = 'media-overlay-item';
+        el.dataset.id = ov.id;
         if (ov.type === 'video') {
-          el = document.createElement('video');
-          el.className = 'media-overlay-item';
-          el.dataset.id = ov.id;
-          el.playsInline = true;
-          el.preload = 'auto';
-          el.muted = true;
-          el.src = ov.url;
-          overlaysLayer.appendChild(el);
+          const v = document.createElement('video');
+          v.playsInline = true;
+          v.preload = 'auto';
+          v.muted = true;
+          v.src = ov.url;
+          el.appendChild(v);
         } else {
-          el = document.createElement('img');
-          el.className = 'media-overlay-item';
-          el.dataset.id = ov.id;
-          el.src = ov.url;
-          overlaysLayer.appendChild(el);
+          const img = document.createElement('img');
+          img.src = ov.url;
+          el.appendChild(img);
         }
+
+        // Corner resize handles (hidden in .still-mode)
+        ['tl', 'tr', 'bl', 'br'].forEach((corner) => {
+          const resizer = document.createElement('div');
+          resizer.className = `resizer ${corner}`;
+          resizer.dataset.resize = corner;
+          el.appendChild(resizer);
+        });
+
+        overlaysLayer.appendChild(el);
       }
 
       const isActive = t >= ov.start && t <= ov.end;
@@ -199,22 +208,25 @@
         el.style.height = `${hPct}%`;
         el.style.transform = 'translate(-50%, -50%)';
 
-        if (!STILL && el.tagName === 'VIDEO') {
+        const mediaEl = el.querySelector('video') || (el.tagName === 'VIDEO' ? el : null);
+        if (!STILL && mediaEl) {
           const targetTime = Math.max(0, t - ov.start + (ov.trim_start || 0));
-          if (playing && el.paused) {
-            el.play().catch(() => {});
-          } else if (!playing && !el.paused) {
-            el.pause();
+          if (playing && mediaEl.paused) {
+            mediaEl.play().catch(() => {});
+          } else if (!playing && !mediaEl.paused) {
+            mediaEl.pause();
           }
-          if (Math.abs(el.currentTime - targetTime) > 0.25) {
-            el.currentTime = targetTime;
+          const driftThreshold = playing ? 0.25 : 0.03;
+          if (Math.abs(mediaEl.currentTime - targetTime) > driftThreshold) {
+            mediaEl.currentTime = targetTime;
           }
         }
       } else {
         el.style.display = 'none';
         el.style.visibility = 'hidden';
-        if (el.tagName === 'VIDEO' && !el.paused) {
-          el.pause();
+        const mediaEl = el.querySelector('video') || (el.tagName === 'VIDEO' ? el : null);
+        if (mediaEl && !mediaEl.paused) {
+          mediaEl.pause();
         }
       }
     });
@@ -301,7 +313,8 @@
     const overlays = currentEdits.media_overlays || [];
     for (const ov of overlays) {
       if (ov.type === 'video' && t >= ov.start && t <= ov.end) {
-        const el = overlaysLayer.querySelector(`video[data-id="${ov.id}"]`);
+        const item = overlaysLayer.querySelector(`[data-id="${ov.id}"]`);
+        const el = item ? (item.tagName === 'VIDEO' ? item : item.querySelector('video')) : null;
         if (el) {
           const targetTime = Math.max(0, t - ov.start + (ov.trim_start || 0));
           if (Math.abs(el.currentTime - targetTime) > 0.001) {
@@ -417,6 +430,7 @@
         }
         updateCues();
         syncSfx();
+        loadSfx();
         apply(clock);
       },
       getEdits: () => currentEdits,

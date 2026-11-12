@@ -341,23 +341,27 @@
       }
     }
 
-    btnUndo.addEventListener('click', undoAction);
-    btnRedo.addEventListener('click', redoAction);
-    btnSave.addEventListener('click', () => saveEditsToServer());
+    if (btnUndo) btnUndo.addEventListener('click', undoAction);
+    if (btnRedo) btnRedo.addEventListener('click', redoAction);
+    if (btnSave) btnSave.addEventListener('click', () => saveEditsToServer());
 
     // Aspect Toggle
-    btn916.addEventListener('click', () => {
-      if (edits.aspect === '9:16') return;
-      edits.aspect = '9:16';
-      edits.stage = { width: 1080, height: 1920 };
-      applyChange();
-    });
-    btn169.addEventListener('click', () => {
-      if (edits.aspect === '16:9') return;
-      edits.aspect = '16:9';
-      edits.stage = { width: 1920, height: 1080 };
-      applyChange();
-    });
+    if (btn916) {
+      btn916.addEventListener('click', () => {
+        if (edits.aspect === '9:16') return;
+        edits.aspect = '9:16';
+        edits.stage = { width: 1080, height: 1920 };
+        applyChange();
+      });
+    }
+    if (btn169) {
+      btn169.addEventListener('click', () => {
+        if (edits.aspect === '16:9') return;
+        edits.aspect = '16:9';
+        edits.stage = { width: 1920, height: 1080 };
+        applyChange();
+      });
+    }
 
     // Tabs
     editorUi.querySelectorAll('.panel-tab[data-tab]').forEach((tab) => {
@@ -497,31 +501,33 @@
     }
 
     // File Upload Handler
-    fileInput.addEventListener('change', () => {
-      const file = fileInput.files && fileInput.files[0];
-      if (!file) return;
-      const headers = { 'X-Filename': file.name };
-      fetch('/api/assets', {
-        method: 'POST',
-        headers,
-        body: file,
-      })
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.ok) {
-            showToast(`Uploaded ${data.asset.name}`);
-            loadAssets();
-          } else {
-            showToast(`Upload failed: ${data.error || 'Unknown error'}`);
-          }
+    if (fileInput) {
+      fileInput.addEventListener('change', () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) return;
+        const headers = { 'X-Filename': file.name };
+        fetch('/api/assets', {
+          method: 'POST',
+          headers,
+          body: file,
         })
-        .catch((err) => {
-          showToast(`Upload failed: ${err.message}`);
-        })
-        .finally(() => {
-          fileInput.value = '';
-        });
-    });
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.ok) {
+              showToast(`Uploaded ${data.asset.name}`);
+              loadAssets();
+            } else {
+              showToast(`Upload failed: ${data.error || 'Unknown error'}`);
+            }
+          })
+          .catch((err) => {
+            showToast(`Upload failed: ${err.message}`);
+          })
+          .finally(() => {
+            fileInput.value = '';
+          });
+      });
+    }
 
     // Right Inspector Render
     function renderInspector() {
@@ -656,7 +662,7 @@
           overlays.forEach((ov) => {
             const isSel = selectedItem && selectedItem.id === ov.id;
             html += `
-              <div class="cue-item ${isSel ? 'selected' : ''}" style="${isSel ? 'border-color:#3d8bff;' : ''}">
+              <div class="cue-item ${isSel ? 'selected' : ''}" data-ov-id="${ov.id}" style="${isSel ? 'border-color:#3d8bff;background:rgba(61,139,255,0.12);' : ''}cursor:pointer;">
                 <span class="cue-time" data-ov-seek="${ov.start}">${ov.start.toFixed(1)}s</span>
                 <span style="flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;">${ov.name || ov.id}</span>
                 <button style="background:none;border:none;color:#f0524d;cursor:pointer;" data-del-ov="${ov.id}">✕</button>
@@ -705,6 +711,20 @@
         }
 
         rightContent.innerHTML = html;
+
+        rightContent.querySelectorAll('.cue-item[data-ov-id]').forEach((item) => {
+          item.addEventListener('click', (e) => {
+            if (e.target.closest('[data-del-ov]')) return;
+            const id = item.dataset.ovId;
+            selectedItem = { type: 'overlay', id };
+            if (stage) {
+              stage.querySelectorAll('.media-overlay-item').forEach((el) => {
+                el.classList.toggle('selected', el.dataset.id === id);
+              });
+            }
+            renderInspector();
+          });
+        });
 
         rightContent.querySelectorAll('[data-ov-seek]').forEach((btn) => {
           btn.addEventListener('click', () => {
@@ -776,7 +796,9 @@
           speeds.forEach((sr, idx) => {
             html += `
               <div class="cue-item">
-                <span class="cue-time" data-spd-seek="${sr.start}">${sr.start.toFixed(1)}s-${sr.end.toFixed(1)}s</span>
+                <input type="number" step="0.1" min="0" class="prop-input" data-spd-start="${idx}" value="${sr.start}" style="width:55px;" title="Start time (sec)" />
+                <span style="color:#8b949e;font-size:11px;">-</span>
+                <input type="number" step="0.1" min="0" class="prop-input" data-spd-end="${idx}" value="${sr.end}" style="width:55px;" title="End time (sec)" />
                 <select class="prop-input" data-spd-idx="${idx}" style="padding:2px;font-size:11px;">
                   <option value="0.5" ${sr.speed === 0.5 ? 'selected' : ''}>0.5x</option>
                   <option value="0.75" ${sr.speed === 0.75 ? 'selected' : ''}>0.75x</option>
@@ -808,10 +830,30 @@
           });
         }
 
-        rightContent.querySelectorAll('[data-spd-seek]').forEach((btn) => {
-          btn.addEventListener('click', () => {
-            const t = Number(btn.dataset.spdSeek);
-            if (scene && typeof scene.seek === 'function') scene.seek(t);
+        rightContent.querySelectorAll('[data-spd-start]').forEach((input) => {
+          input.addEventListener('change', () => {
+            const idx = Number(input.dataset.spdStart);
+            const val = Number(input.value);
+            const sr = edits.speed_ranges[idx];
+            if (sr && !isNaN(val)) {
+              sr.start = Math.max(0, Math.round(val * 10) / 10);
+              if (sr.end <= sr.start) {
+                sr.end = Math.round((sr.start + 0.5) * 10) / 10;
+              }
+              applyChange();
+            }
+          });
+        });
+
+        rightContent.querySelectorAll('[data-spd-end]').forEach((input) => {
+          input.addEventListener('change', () => {
+            const idx = Number(input.dataset.spdEnd);
+            const val = Number(input.value);
+            const sr = edits.speed_ranges[idx];
+            if (sr && !isNaN(val)) {
+              sr.end = Math.max(Math.round((sr.start + 0.1) * 10) / 10, Math.round(val * 10) / 10);
+              applyChange();
+            }
           });
         });
 
@@ -885,13 +927,15 @@
         trackSpd.innerHTML = html;
       }
 
-      timelineTracks.querySelectorAll('.track-segment[data-tseek]').forEach((el) => {
-        el.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const t = Number(el.dataset.tseek);
-          if (scene && typeof scene.seek === 'function') scene.seek(t);
+      if (timelineTracks) {
+        timelineTracks.querySelectorAll('.track-segment[data-tseek]').forEach((el) => {
+          el.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const t = Number(el.dataset.tseek);
+            if (scene && typeof scene.seek === 'function') scene.seek(t);
+          });
         });
-      });
+      }
     }
 
     // Transport playback button
@@ -906,6 +950,7 @@
     // Timeline Scrubbing
     let isScrubbing = false;
     function handleTimelineScrub(e) {
+      if (!timelineTracks) return;
       const rect = timelineTracks.getBoundingClientRect();
       const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
       const duration = scene ? scene.duration || 30 : 30;
@@ -914,10 +959,12 @@
         scene.seek(t);
       }
     }
-    timelineTracks.addEventListener('mousedown', (e) => {
-      isScrubbing = true;
-      handleTimelineScrub(e);
-    });
+    if (timelineTracks) {
+      timelineTracks.addEventListener('mousedown', (e) => {
+        isScrubbing = true;
+        handleTimelineScrub(e);
+      });
+    }
     window.addEventListener('mousemove', (e) => {
       if (isScrubbing) handleTimelineScrub(e);
     });
@@ -945,27 +992,62 @@
     requestAnimationFrame(updatePlayhead);
 
     // On-Stage Pointer Drag & Resize Handling
-    let dragTarget = null; // { type: 'subtitles' } | { type: 'overlay', id: '...', resizer?: 'tl'|'tr'|'bl'|'br' }
-    let dragStartPos = null;
+    let dragTarget = null; // { type: 'subtitles'|'overlay_move'|'overlay_resize', id?: '...', dir?: 'tl'|'tr'|'bl'|'br', startX, startY, startW?, startH?, clientX, clientY }
 
     if (subtitlesBox) {
       subtitlesBox.addEventListener('pointerdown', (e) => {
         e.stopPropagation();
-        dragTarget = { type: 'subtitles' };
         selectedItem = { type: 'subtitles' };
         activeInspectorTab = 'subtitles';
+        stage.querySelectorAll('.media-overlay-item').forEach((item) => item.classList.remove('selected'));
+        const sub = edits.subtitles || {};
+        dragTarget = {
+          type: 'subtitles',
+          startX: sub.x != null ? sub.x : 0.5,
+          startY: sub.y != null ? sub.y : 0.78,
+          clientX: e.clientX,
+          clientY: e.clientY,
+        };
         renderInspector();
       });
     }
 
     stage.addEventListener('pointerdown', (e) => {
+      const resizeHandle = e.target.closest('[data-resize]');
       const ovEl = e.target.closest('.media-overlay-item');
       if (ovEl) {
         e.stopPropagation();
         const id = ovEl.dataset.id;
-        dragTarget = { type: 'overlay', id };
+        const ov = (edits.media_overlays || []).find((o) => o.id === id);
         selectedItem = { type: 'overlay', id };
         activeInspectorTab = 'overlays';
+
+        stage.querySelectorAll('.media-overlay-item').forEach((item) => {
+          item.classList.toggle('selected', item.dataset.id === id);
+        });
+
+        if (resizeHandle && ov) {
+          dragTarget = {
+            type: 'overlay_resize',
+            id,
+            dir: resizeHandle.dataset.resize, // 'tl' | 'tr' | 'bl' | 'br'
+            startX: ov.x != null ? ov.x : 0.5,
+            startY: ov.y != null ? ov.y : 0.5,
+            startW: ov.width != null ? ov.width : 0.4,
+            startH: ov.height != null ? ov.height : 0.3,
+            clientX: e.clientX,
+            clientY: e.clientY,
+          };
+        } else if (ov) {
+          dragTarget = {
+            type: 'overlay_move',
+            id,
+            startX: ov.x != null ? ov.x : 0.5,
+            startY: ov.y != null ? ov.y : 0.5,
+            clientX: e.clientX,
+            clientY: e.clientY,
+          };
+        }
         renderInspector();
       }
     });
@@ -973,20 +1055,50 @@
     window.addEventListener('pointermove', (e) => {
       if (!dragTarget) return;
       const stageRect = stage.getBoundingClientRect();
-      const normX = Math.max(0.05, Math.min(0.95, (e.clientX - stageRect.left) / stageRect.width));
-      const normY = Math.max(0.05, Math.min(0.95, (e.clientY - stageRect.top) / stageRect.height));
+      const dx = (e.clientX - dragTarget.clientX) / stageRect.width;
+      const dy = (e.clientY - dragTarget.clientY) / stageRect.height;
 
       if (dragTarget.type === 'subtitles') {
-        edits.subtitles.x = Math.round(normX * 1000) / 1000;
-        edits.subtitles.y = Math.round(normY * 1000) / 1000;
+        const nextX = Math.max(0.05, Math.min(0.95, dragTarget.startX + dx));
+        const nextY = Math.max(0.05, Math.min(0.95, dragTarget.startY + dy));
+        edits.subtitles.x = Math.round(nextX * 1000) / 1000;
+        edits.subtitles.y = Math.round(nextY * 1000) / 1000;
         if (scene && typeof scene.applyEdits === 'function') {
           scene.applyEdits(edits);
         }
-      } else if (dragTarget.type === 'overlay') {
+      } else if (dragTarget.type === 'overlay_move') {
         const ov = (edits.media_overlays || []).find((o) => o.id === dragTarget.id);
         if (ov) {
-          ov.x = Math.round(normX * 1000) / 1000;
-          ov.y = Math.round(normY * 1000) / 1000;
+          const nextX = Math.max(0.05, Math.min(0.95, dragTarget.startX + dx));
+          const nextY = Math.max(0.05, Math.min(0.95, dragTarget.startY + dy));
+          ov.x = Math.round(nextX * 1000) / 1000;
+          ov.y = Math.round(nextY * 1000) / 1000;
+          if (scene && typeof scene.applyEdits === 'function') {
+            scene.applyEdits(edits);
+          }
+        }
+      } else if (dragTarget.type === 'overlay_resize') {
+        const ov = (edits.media_overlays || []).find((o) => o.id === dragTarget.id);
+        if (ov) {
+          let deltaW = 0;
+          let deltaH = 0;
+          if (dragTarget.dir === 'br') {
+            deltaW = dx * 2;
+            deltaH = dy * 2;
+          } else if (dragTarget.dir === 'bl') {
+            deltaW = -dx * 2;
+            deltaH = dy * 2;
+          } else if (dragTarget.dir === 'tr') {
+            deltaW = dx * 2;
+            deltaH = -dy * 2;
+          } else if (dragTarget.dir === 'tl') {
+            deltaW = -dx * 2;
+            deltaH = -dy * 2;
+          }
+          const nextW = Math.max(0.05, Math.min(1.0, dragTarget.startW + deltaW));
+          const nextH = Math.max(0.05, Math.min(1.0, dragTarget.startH + deltaH));
+          ov.width = Math.round(nextW * 1000) / 1000;
+          ov.height = Math.round(nextH * 1000) / 1000;
           if (scene && typeof scene.applyEdits === 'function') {
             scene.applyEdits(edits);
           }

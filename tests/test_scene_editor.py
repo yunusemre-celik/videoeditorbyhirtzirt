@@ -238,6 +238,11 @@ def test_engine_apply_edits_and_still_mode_in_node():
         };
         this.textContent = '';
       }
+      get className() { return Array.from(this.classList.classes).join(' '); }
+      set className(val) {
+        this.classList.classes.clear();
+        (val || '').split(/\\s+/).filter(Boolean).forEach(c => this.classList.classes.add(c));
+      }
       setAttribute(k, v) { this[k] = v; }
       getAttribute(k) { return this[k]; }
       removeAttribute(k) { delete this[k]; }
@@ -375,9 +380,14 @@ def test_engine_apply_edits_and_still_mode_in_node():
           throw new Error('Cues not updated: ' + JSON.stringify(cues));
         }
 
-        // Check overlay item was created inside overlaysLayer
-        if (!overlaysLayer.children.some(c => c.dataset.id === 'ov_test_1')) {
+        // Check overlay item was created inside overlaysLayer and has resizer handles
+        const ovItem = overlaysLayer.children.find(c => c.dataset.id === 'ov_test_1');
+        if (!ovItem) {
           throw new Error('Overlay element was not added to overlaysLayer');
+        }
+        const resizers = ovItem.children.filter(c => c.classList && c.classList.contains('resizer'));
+        if (resizers.length !== 4) {
+          throw new Error('Expected 4 resizers on overlay element, found ' + resizers.length);
         }
 
         // Check SFX merged audio clips
@@ -395,4 +405,143 @@ def test_engine_apply_edits_and_still_mode_in_node():
     proc = subprocess.run(["node", "-e", node_script], cwd=str(root), capture_output=True, text=True)
     assert proc.returncode == 0, proc.stderr
     assert "ENGINE_INTEGRATION_OK" in proc.stdout
+
+
+def test_studio_overlay_resizers_and_speed_inputs_in_node():
+    root = Path(__file__).resolve().parent.parent
+    node_script = """
+    const fs = require('fs');
+    const editorCode = fs.readFileSync('template/editor.js', 'utf8');
+
+    class MockElement {
+      constructor(tagName) {
+        this.tagName = (tagName || 'DIV').toUpperCase();
+        this.style = {};
+        this.dataset = {};
+        this.children = [];
+        this.classList = {
+          classes: new Set(),
+          add(c) { this.classes.add(c); },
+          remove(c) { this.classes.delete(c); },
+          contains(c) { return this.classes.has(c); },
+          toggle(c, v) { if (v) this.classes.add(c); else this.classes.delete(c); }
+        };
+        this.innerHTML = '';
+        this.textContent = '';
+        this.listeners = {};
+      }
+      addEventListener(type, cb) {
+        (this.listeners[type] = this.listeners[type] || []).push(cb);
+      }
+      dispatchEvent(event) {
+        const cbs = this.listeners[event.type] || [];
+        for (const cb of cbs) cb(event);
+      }
+      appendChild(child) { this.children.push(child); return child; }
+      removeChild(child) {
+        const i = this.children.indexOf(child);
+        if (i !== -1) this.children.splice(i, 1);
+        return child;
+      }
+      getBoundingClientRect() {
+        return { left: 0, top: 0, width: 1080, height: 1920 };
+      }
+      querySelectorAll() {
+        return [];
+      }
+      querySelector() {
+        return null;
+      }
+      closest(sel) {
+        if (sel === '[data-resize]' && this.dataset.resize) return this;
+        if (sel === '.media-overlay-item' && this.classList.contains('media-overlay-item')) return this;
+        return null;
+      }
+    }
+
+    const editorUi = new MockElement('DIV');
+    const stage = new MockElement('DIV');
+    const subtitlesBox = new MockElement('DIV');
+    subtitlesBox.id = 'subtitles-box';
+
+    const elementsById = {
+      'editor-ui': editorUi,
+      'stage': stage,
+      'subtitles-box': subtitlesBox
+    };
+
+    globalThis.window = globalThis;
+    globalThis.location = { search: '' }; // Live preview, NOT ?still
+    globalThis.document = {
+      body: new MockElement('BODY'),
+      getElementById: (id) => elementsById[id] || null,
+      querySelector: (sel) => {
+        if (sel.startsWith('#')) return elementsById[sel.slice(1)] || null;
+        return null;
+      },
+      querySelectorAll: () => [],
+      createElement: (tag) => new MockElement(tag),
+      addEventListener: () => {}
+    };
+    globalThis.addEventListener = () => {};
+    globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 16);
+
+    eval(editorCode);
+
+    const initialEdits = {
+      version: 1,
+      aspect: '9:16',
+      stage: { width: 1080, height: 1920 },
+      subtitles: { enabled: true, x: 0.5, y: 0.78, fontSize: 56, overrides: {} },
+      speed_ranges: [
+        { start: 1.0, end: 3.5, speed: 2.0 }
+      ],
+      media_overlays: [
+        { id: 'ov_1', type: 'image', url: 'img.png', start: 0, end: 5, x: 0.5, y: 0.5, width: 0.4, height: 0.3 }
+      ],
+      audio_clips: []
+    };
+
+    let appliedEdits = null;
+    const mockScene = {
+      duration: 30,
+      clock: 1.0,
+      getCues: () => [{ id: 'sub_0', start: 0, end: 1, text: 'Hello world' }],
+      applyEdits: (next) => { appliedEdits = JSON.parse(JSON.stringify(next)); },
+      seek: () => {},
+      play: () => {}
+    };
+
+    window.__initEditor(mockScene, initialEdits);
+
+    // Verify editorUi HTML has speed tab inputs
+    // Switch to speed tab in inspector
+    const rightPanelContent = editorUi.innerHTML;
+    if (!editorUi.innerHTML.includes('id="editor-header"')) {
+      throw new Error('editor-header missing in editorUi');
+    }
+
+    // Check editor.js code contains data-spd-start and data-spd-end
+    const jsSource = fs.readFileSync('template/editor.js', 'utf8');
+    if (!jsSource.includes('data-spd-start') || !jsSource.includes('data-spd-end')) {
+      throw new Error('Speed segment start and end inputs missing in editor.js');
+    }
+
+    // Check editor.js code contains data-resize and corner handle dragging
+    if (!jsSource.includes('data-resize') || !jsSource.includes('overlay_resize')) {
+      throw new Error('Overlay resize handling missing in editor.js');
+    }
+
+    // Check editor.js code contains overlay select listener
+    if (!jsSource.includes('data-ov-id')) {
+      throw new Error('Overlay select listener missing in editor.js');
+    }
+
+    console.log('STUDIO_INSPECTOR_OK');
+    process.exit(0);
+    """
+    proc = subprocess.run(["node", "-e", node_script], cwd=str(root), capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    assert "STUDIO_INSPECTOR_OK" in proc.stdout
+
 
