@@ -26,7 +26,7 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _common import decode, ffmpeg, fmt_time, load_json, loudness, project_paths, write_wav  # noqa: E402
+from _common import decode, ffmpeg, fmt_time, load_json, loudness, need, project_paths, write_wav  # noqa: E402
 from cuts import clamp_speed  # noqa: E402
 
 SR = 48000
@@ -67,6 +67,7 @@ def stretch_audio_piece(samples: np.ndarray, speed: float, target_len: int, sr: 
     if abs(spd - 1.0) <= 1e-3 or len(samples) == 0:
         out = samples.copy()
     else:
+        need('ffmpeg')
         chain = atempo_chain(spd)
         raw_in = samples.tobytes()
         proc = subprocess.run(

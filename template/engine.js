@@ -131,7 +131,7 @@
   const buffers = {};
   async function loadSfx() {
     if (STILL || !SFX.length) return;
-    actx = new AudioContext();
+    if (!actx) actx = new AudioContext();
     for (const name of new Set(SFX.map((c) => c.name))) {
       try {
         const r = await fetch(`sfx/${name}.wav`);

@@ -1,233 +1,185 @@
-# claude-video-edit
+# Antigravity Video Editor
 
-A Claude Code skill that edits talking-head, tutorial, explainer and Short videos together with you: word-accurate cuts, motion graphics locked to your words, sound effects made from math, honest loudness, frame-exact 4K renders.
+A high-performance video editing pipeline and interactive web studio designed for Antigravity. Create polished talking-head, tutorial, explainer, TikTok, Instagram Reels, and YouTube Shorts videos: word-accurate cuts from raw footage, automatic EDL generation, 3-word dynamic subtitles, segment speed control, Canva/CapCut-style browser studio with two-way sync via `edits.json`, mathematical sound effects, and frame-exact headless Chrome rendering.
 
-![Claude can't hear sound: the waveform of the sentence being spoken, measured live](docs/images/hero.jpg)
+![Antigravity Video Editor](docs/images/hero.jpg)
 
-> **This repo makes good edits possible. It does not make them for you.**
-> The real power is still yours: your eye, your notes, your taste. Claude cuts, measures and builds fast. You watch, give notes and decide.
+> **Antigravity makes precise, automated editing effortless.**
+> You retain creative control: Antigravity transcribes, auto-cuts, snaps word edges, and renders in parallel. You tweak in the web studio, review preview builds, and finalize.
 
 [Türkçe açıklama aşağıda](#türkçe).
 
-## Quick start
+---
 
-**1. Install the tools once.** Python 3.10+, ffmpeg, Node 20+, Google Chrome, and one Whisper backend.
+## Quick Start
 
-macOS (Apple Silicon, with [Homebrew](https://brew.sh)):
-
-```bash
-brew install python ffmpeg node numpy whisperkit-cli
-```
-
-Linux or Windows: install ffmpeg, Node 20+ and Chrome from their sites, then (in a virtual environment if your system asks for one):
-
-```bash
-python3 -m pip install numpy faster-whisper
-```
-
-It is built and tested on macOS. Linux and Windows use the same tools but are less tested.
-
-**2. Install the skill.**
+### 1. Prerequisites & Dependencies
+- Python 3.10+
+- FFmpeg and FFprobe installed on your PATH
+- Node.js 20+
+- Google Chrome or Chromium
+- Python dependencies:
 
 ```bash
-git clone https://github.com/YildizDikme/claude-video-edit ~/.claude/skills/video-edit
+python -m pip install -r requirements.txt
 ```
 
-That is all. You do not paste anything into a prompt: Claude Code loads the skill by itself and uses it whenever you ask for a video edit. To update later: `git -C ~/.claude/skills/video-edit pull`.
+*(Includes `numpy`, `faster-whisper`, `auto-editor`, and `pytest`)*
 
-**3. Edit a video.** Make a folder, put your raw clips in `src/`, and open Claude Code there:
+### 2. Workflow Directory Layout
+Set up your project directory:
 
 ```bash
-mkdir my-video && cd my-video && mkdir src
-# copy your clips into src/
-claude
+mkdir my-video && cd my-video
+mkdir src
+# Place your raw video clips (*.mp4, *.mov) in src/
 ```
 
-Then just say what you want, for example:
+Project folders:
+- `src/` — Raw takes and clips.
+- `work/` — Generated intermediate files: envelopes (`env/`), transcripts, `edl.json`, `program.json`, `edits.json`, `subtitles.json`, `subtitles.srt`, `proxy.mp4`, `prog.wav`.
+- `scene/` — Interactive web studio and HTML motion-graphics template (copied from `template/`).
+- `assets/` — Uploaded audio (`.mp3`, `.wav`), image overlays (`.png`, `.jpeg`), and video clips (`.mp4`).
+- `out/` — Final renders (`out/FINAL.mp4`).
 
-> Edit the clips in src into a 10-minute educational video. Cut retakes and pauses. Propose chapters. Calm graphics, no sound effects.
+---
 
-> This is a Short. Tight cuts, captions on, more energetic graphics.
+## The 7-Step Pipeline
 
-**4. The first time, Claude gets to know you.** It asks a few questions in one message (your name, your colours, your logo, your usual videos, sound effects or not) and remembers the answers for every later video. See [It remembers you](#it-remembers-you).
-
-## How a session goes
-
-1. Claude transcribes the clips, makes a rough cut (retakes and pauses out, words never clipped) and gives you a preview link.
-2. You watch and give notes with timestamps: "0:36 cut the pause after this word", "1:12 show an example here". One round at a time. Screenshots of what you mean help a lot.
-3. Claude proposes chapters, then builds the graphics chapter by chapter, and you review each part.
-4. Sound effects only if you want them.
-5. When you approve the preview, Claude renders the final video (up to 4K) and gives you the length, the loudness and the YouTube chapter list.
-
-Good edits come from these short review loops. Expect several rounds.
-
-## What it can do
-
-<table>
-<tr>
-<td width="50%"><img src="docs/images/math.jpg" alt="The video's own sound measured every 10 ms, with the formula on screen"><br>Explains with real data: the video's own sound, measured every 10 ms, the math on screen.</td>
-<td width="50%"><img src="docs/images/rings.jpg" alt="A frame locked onto the score in a web app"><br>Frames that lock onto the part of the screen being talked about and follow the scroll.</td>
-</tr>
-<tr>
-<td><img src="docs/images/data.jpg" alt="Drawn faces being scanned to explain what data means"><br>Abstract ideas drawn: what "the model needs a lot of data" actually means.</td>
-<td><img src="docs/images/proof.jpg" alt="Real score cards from three runs"><br>Real results from the recording instead of invented examples.</td>
-</tr>
-<tr>
-<td><img src="docs/images/mistakes.jpg" alt="A real mistake with the before and after"><br>Mistakes shown honestly: the real screenshot, the note, the fixed version.</td>
-<td><img src="docs/images/profile.jpg" alt="Lower third with the creator's name"><br>Your name and colours from your profile, on every video.</td>
-</tr>
-</table>
-
-Frames from my own videos edited with this skill (Turkish, with English on screen).
-
-## It remembers you
-
-On the first run Claude asks, in one message: your name and role for the lower third, your channel and languages, the colours you like and the ones you never want, your logo, your usual video types, and whether you want sound effects. The answers go to `~/.claude/video-edit/profile.md` (your logo to `~/.claude/video-edit/brand/`) and are used in every later video without asking again.
-
-When you give a rule meant for all your videos ("no sound on transitions", "always deliver 4K"), Claude adds it to the profile and tells you. The profile stays on your computer; it is never part of a project or a repository. You can open and edit it any time.
-
-## Creative, with purpose
-
-The skill tells Claude to explain, not decorate: draw the abstract idea, show a small "what is this" box for tools the viewer may not know, use the video's own measured data and your real screenshots, show mistakes with the real before and after, and vary the form instead of pasting the same card. Videos are split into chapters by meaning, with titles that say what the viewer gets.
-
-Transitions are part of the template: a short chapter veil that closes before the cut, a text veil for inserts and montages, a blur dip where the picture jumps, a dark blur dip where a cut changes the subject, and a calm goodbye screen. They are silent by default.
-
-## Why it works: Claude can't hear
-
-Everything this skill knows about sound is measured: word timestamps from Whisper, a 10 ms energy envelope, loudness meters. So the workflow is built around that:
-
-- **Cuts follow the measured energy, not guesses.** Each cut snaps to the real start and end of a word in the waveform.
-- **Picture and sound share one clock.** Graphics and sound effects are triggered from the same timeline, so effects land on the picture without anyone listening for sync.
-- **The voice is never processed by default.** No noise reduction, EQ or compression: one linear gain only. Those filters are the usual cause of muffled voices.
-- **A human reviews every stage.** Your ear is the final check for clipped words and effect levels.
-
-## Try it without footage
-
+### 1. Transcribe (`scripts/transcribe.py`)
+Uses `faster-whisper` for free, fast, local word-timestamp transcription chunked at pauses, along with a 10 ms RMS energy envelope. Chunking at pauses prevents Whisper from dropping repeated takes.
 ```bash
-cd ~/.claude/skills/video-edit
-python3 scripts/sfx.py lib --out template/sfx
-python3 scripts/serve.py --project . --port 5600
+python scripts/transcribe.py --project . src/*.mp4 --lang en
 ```
 
-Open http://127.0.0.1:5600/template/?demo and press Space.
-
-## What is inside
-
-```
-SKILL.md              the workflow Claude follows
-reference/audio.md    cutting rules, loudness, sound effects, captions (the most important file)
-reference/style.md    glass cards, neutral palette, typography, motion, transitions, things to avoid
-reference/profile.md  the creator profile Claude writes on the first run and reads every time
-reference/edl.md      the edit-list format
-scripts/              transcribe, cuts, build, verify, loudness, sfx, mix (Python) · render, audit (Node)
-template/             a scene page: engine, glass-card styles, chapter veils, transitions, demo beats
-docs/images/          the pictures in this README
+### 2. Auto Cut (`scripts/auto_cut.py`)
+Generates an initial Edit Decision List (`work/edl.json`) automatically by eliminating dead silence, false starts, and retakes. Optionally integrates with `auto-editor`.
+```bash
+python scripts/auto_cut.py --project .                  # Automatic EDL generation
+python scripts/auto_cut.py --project . --use-auto-editor # Optional auto-editor integration
 ```
 
-## Video types
+### 3. Snapped Cuts & Speed Control (`scripts/cuts.py`)
+Snaps cut points to exact measured word edges using the 10 ms energy envelope so speech is never cut mid-word. Incorporates segment speed adjustments from `edl.json` (`"speed"`) and `work/edits.json` (`"speed_ranges"`).
+```bash
+python scripts/cuts.py --project .
+```
 
-| Type | Graphics | Effects | Cuts |
-|---|---|---|---|
-| Educational / explainer | calm, clear diagrams, slow camera, three.js only when it explains | none, or only where a sound is the subject | natural |
-| Talk | few long-lasting cards, never over the face | none by default | natural or tight |
-| Tutorial | zoom into the screen, highlight frames, steps | optional soft clicks | natural |
-| Short | bigger, faster, hook in 2 s, captions | allowed, under the voice | tight |
+### 4. Dynamic 3-Word Subtitles (`scripts/subtitles.py`)
+Generates snappy 1-to-3 word subtitle chunks designed for vertical Reels, TikTok, and Shorts without distracting karaoke color changes. Respects punctuation boundaries, pauses (>250 ms), and custom word overrides.
+```bash
+python scripts/subtitles.py --project .
+```
+Outputs `work/subtitles.json` and `work/subtitles.srt`.
 
-## Limits
+### 5. Build Preview Media (`scripts/build.py`)
+Builds sample-exact audio with pitch-safe FFmpeg `atempo` speed stretching and micro-fades (4 ms in, 15 ms out) alongside frame-exact video with `setpts`.
+```bash
+python scripts/build.py --project . audio video
+```
+Produces `work/prog.wav` and `work/proxy.mp4` (1080p preview).
 
-- Claude can't judge taste, emotion, or whether a mix "sounds good". Listen to every flagged join and every effect level.
-- Whisper makes mistakes with names and technical words. Check the transcript.
-- It is made for talking-head, tutorial, screen-recording and Short videos. Colour grading, multi-camera edits and music videos are not covered.
-- Long videos take time and tokens. On a smaller plan, work chapter by chapter.
-- Rendering through a browser is slow, about 10 fps per worker at 1080p. Use several workers for long videos.
+### 6. Interactive Web Studio (`scripts/serve.py`)
+Launches the Canva/CapCut-style interactive editor at `http://127.0.0.1:5600/scene/`.
+```bash
+python scripts/serve.py --project . --port 5600
+```
+Key Features:
+- **Two-way sync via `work/edits.json`**: Changes in the browser are written directly to disk via REST endpoints (`GET/POST /api/edits`).
+- **20-step Undo / Redo**: Keyboard shortcuts (`Ctrl+Z`, `Ctrl+Y`) and header buttons.
+- **Normalized `0..1` Drag & Resize Bounding Boxes**: Easily position and scale subtitle boxes and media overlays.
+- **Asset Tray**: Drag-and-drop file upload for `.mp3`, `.wav`, `.png`, `.jpeg`, and `.mp4` into `assets/` via `POST /api/assets`.
+- **Speed Segment Editor**: Add, adjust, or remove speed ranges (`0.25x` to `4.0x`) directly on the timeline.
+- **Live Sound Effects**: Audition synthesized math-based sound effects live in the browser.
 
-## License
+### 7. Headless Render & Audio Mix (`scripts/render.mjs` & `scripts/mix.py`)
+Renders all motion graphics, subtitle layers, and media overlays frame-by-frame in headless Chrome using deterministic `?still` stepping, then mixes dialogue, mathematical SFX, and custom audio tracks.
+```bash
+# Render high-resolution source video background:
+python scripts/build.py --project . video --final
 
-MIT. See `LICENSE`.
+# Headless Chrome frame render:
+node scripts/render.mjs "http://127.0.0.1:5600/scene/?src=../work/prog-final.mp4" --out out/frames --workers 4 --dpr 2
+
+# Final audio mix and muxing:
+python scripts/mix.py --project . --video out/frames --out out/FINAL.mp4
+
+# Verify broadcast & streaming loudness (-14 LUFS, -1 dBTP ceiling):
+python scripts/loudness.py out/FINAL.mp4
+```
+
+---
+
+## Scripts Overview
+
+| Script | Functionality |
+|---|---|
+| `transcribe.py` | Pause-chunked word-timestamp transcription (`faster-whisper`) & 10 ms RMS envelope. |
+| `auto_cut.py` | Automatic `work/edl.json` creation with optional `--use-auto-editor` integration. |
+| `cuts.py` | Snaps cut points to envelope word edges and applies segment speeds to create `work/program.json`. |
+| `subtitles.py` | Generates 3-word dynamic subtitle chunks (`work/subtitles.json`, `work/subtitles.srt`). |
+| `build.py` | Sample-exact audio with `atempo` stretching and frame-exact video with `setpts`. |
+| `serve.py` | Interactive web studio with HTTP range streaming, asset tray upload, and two-way `edits.json` sync. |
+| `verify.py` | Re-transcribes joins to detect clipped words or unintended repetitions. |
+| `sfx.py` | Mathematical sound effect synthesis (whoosh, pop, tick, click, chime). |
+| `render.mjs` | Multi-worker headless Chrome frame-exact renderer using deterministic `?still` mode. |
+| `mix.py` | Mixes dialogue, mathematical SFX, and custom audio tracks with true-peak limiting. |
+| `loudness.py` | ITU-R BS.1770 / EBU R128 loudness and true-peak measurement. |
+| `audit.mjs` | Automated visual audit for overlapping text or clipping boxes. |
+
+---
+
+## Testing
+
+Run the comprehensive test suite:
+```bash
+python -m pytest -v
+```
 
 ---
 
 ## Türkçe
 
-Konuşma, eğitim, ekran kaydı ve Short videolarını sizinle birlikte editleyen bir Claude Code skill'i: kelime sınırından kesim, sözlerinize kilitli animasyonlar, matematikten üretilen ses efektleri, doğru ses seviyesi ve kare kare 4K render.
+# Antigravity Video Editörü
 
-> **Bu repo iyi edit yapmayı mümkün kılıyor, sizin yerinize yapmıyor.**
-> Asıl güç hâlâ sizde: gözünüz, notlarınız, zevkiniz. Claude hızlı keser, ölçer ve kurar; siz izler, not verir ve karar verirsiniz.
+Antigravity için geliştirilmiş yüksek performanslı video kurgu hattı ve etkileşimli web stüdyosu. Konuşma, eğitim, tanıtım, TikTok, Instagram Reels ve YouTube Shorts videolarınızı hızla hazırlayın: ham videolardan kelime hassasiyetinde kesim, otomatik EDL oluşturma, 3 kelimelik dinamik altyazılar, kesit hız kontrolü, `edits.json` üzerinden çift yönlü senkronizasyona sahip Canva/CapCut tarzı tarayıcı stüdyosu, matematiksel ses efektleri ve kare kare Chrome render'ı.
 
-### Hızlı başlangıç
+### Kurulum
 
-**1. Araçları bir kez kurun.** Python 3.10+, ffmpeg, Node 20+, Google Chrome ve bir Whisper.
+1. **Gereksinimler:**
+   - Python 3.10+
+   - FFmpeg ve FFprobe
+   - Node.js 20+
+   - Google Chrome veya Chromium
 
-macOS (Apple Silicon, [Homebrew](https://brew.sh) ile):
-
+2. **Bağımlılıkları Yükleyin:**
 ```bash
-brew install python ffmpeg node numpy whisperkit-cli
+python -m pip install -r requirements.txt
 ```
 
-Linux ya da Windows: ffmpeg, Node 20+ ve Chrome'u kendi sitelerinden kurun, sonra (sisteminiz isterse bir sanal ortam içinde):
+### 7 Aşamalı Kurgu Hattı
 
+1. **Döküm (`scripts/transcribe.py`):** `faster-whisper` ile duraklamalarda bölünmüş, kelime zaman damgalı yerel transkripsiyon ve 10 ms RMS enerji zarfı oluşturur.
+2. **Otomatik Kesim (`scripts/auto_cut.py`):** Sessizlikleri, hatalı başlangıçları ve tekrarları ayıklayarak `work/edl.json` dosyasını otomatik oluşturur; istenirse `--use-auto-editor` desteği sunar.
+3. **Zarfa Kenetlenen Kesimler & Hız Kontrolü (`scripts/cuts.py`):** Kesim noktalarını enerji zarfındaki kelime sınırlarına kenetler; `edl.json` ve `work/edits.json` içindeki hız aralıklarını uygular.
+4. **Dinamik 3 Kelimelik Altyazılar (`scripts/subtitles.py`):** Reels ve TikTok için ideal, göz yormayan, karaoke renk geçişi içermeyen 1-3 kelimelik vurucu altyazılar üretir (`subtitles.json` ve `subtitles.srt`).
+5. **Önizleme Medyası Oluşturma (`scripts/build.py`):** `atempo` ile ses tonunu bozmadan hızlandırıp yavaşlatan örnekleme hassasiyetinde ses ve `setpts` ile kare hassasiyetinde video üretir (`work/prog.wav`, `work/proxy.mp4`).
+6. **Etkileşimli Web Stüdyosu (`scripts/serve.py`):** `http://127.0.0.1:5600/scene/` adresinde çalışan Canva/CapCut tarzı editör:
+   - `work/edits.json` ile çift yönlü anlık senkronizasyon.
+   - 20 adımlı Geri Al / Yinele (Undo/Redo: `Ctrl+Z`, `Ctrl+Y`).
+   - Normalleştirilmiş `0..1` koordinatlarıyla sürükle-bırak ve yeniden boyutlandırma tutamaçları.
+   - `.mp3`, `.wav`, `.png`, `.jpeg`, `.mp4` dosyaları için sürükle-bırak Medya Tepsisi (Asset Tray).
+   - Zaman çizelgesinde kesit hız düzenleyici (`0.25x` - `4.0x`).
+   - Canlı matematiksel ses efektleri dinleme ve yerleştirme.
+7. **Chrome Render & Miksaj (`scripts/render.mjs` & `scripts/mix.py`):** `?still` modunda başsız Chrome ile kare kare render alır; konuşma sesini, matematiksel SFX'leri ve özel ses parçalarını birleştirerek `out/FINAL.mp4` çıktısını üretir.
+
+### Testleri Çalıştırma
 ```bash
-python3 -m pip install numpy faster-whisper
+python -m pytest -v
 ```
 
-macOS'ta geliştirildi ve test edildi. Linux ve Windows aynı araçları kullanır ama daha az denendi.
+---
 
-**2. Skill'i kurun.**
+## Lisans
 
-```bash
-git clone https://github.com/YildizDikme/claude-video-edit ~/.claude/skills/video-edit
-```
-
-Bu kadar. Hiçbir şeyi prompta yapıştırmanız gerekmez: Claude Code skill'i kendisi yükler ve video editlemek istediğiniz her seferde kullanır. Güncellemek için: `git -C ~/.claude/skills/video-edit pull`.
-
-**3. Video editleyin.** Bir klasör açın, ham kliplerinizi `src/` içine koyun ve Claude Code'u orada açın:
-
-```bash
-mkdir videom && cd videom && mkdir src
-# kliplerinizi src/ içine kopyalayın
-claude
-```
-
-Sonra ne istediğinizi söyleyin. Örneğin: "src içindeki klipleri 10 dakikalık bir eğitim videosuna çevir. Tekrarları ve duraksamaları kes, bölüm öner, animasyonlar sakin olsun, efekt koyma."
-
-**4. İlk seferde Claude sizi tanır.** Tek mesajda birkaç soru sorar (adınız, renkleriniz, logonuz, genelde çektiğiniz videolar, ses efekti isteyip istemediğiniz) ve cevapları sonraki bütün videolar için hatırlar.
-
-### Bir çalışma nasıl ilerler
-
-1. Claude klipleri yazıya döker, kaba kurguyu yapar (tekrarlar ve duraksamalar çıkar, kelimeler kırpılmaz) ve size bir önizleme linki verir.
-2. Siz izler ve zamanla not verirsiniz: "0:36'da bu kelimeden sonraki boşluğu kes", "1:12'de buraya örnek koy". Her seferinde bir tur. Ne demek istediğinizi gösteren ekran görüntüleri çok işe yarar.
-3. Claude bölümleri önerir, sonra animasyonları bölüm bölüm kurar; her parçayı siz kontrol edersiniz.
-4. Ses efektleri sadece isterseniz.
-5. Önizlemeyi onayladığınızda Claude final videoyu (4K'ya kadar) render alır; süreyi, ses seviyesini ve YouTube bölüm listesini verir.
-
-İyi edit bu kısa kontrol turlarından çıkar. Birkaç tur bekleyin.
-
-### Sizi hatırlar
-
-İlk kullanımda Claude tek mesajda sorar: alt bant (lower third) için adınız ve unvanınız, kanalınız ve dilleriniz, sevdiğiniz ve hiç istemediğiniz renkler, logonuz, genelde çektiğiniz video türleri ve ses efekti isteyip istemediğiniz. Cevaplar `~/.claude/video-edit/profile.md` dosyasına (logo `~/.claude/video-edit/brand/` klasörüne) kaydedilir ve sonraki her videoda tekrar sorulmadan kullanılır.
-
-Tüm videolarınız için bir kural verdiğinizde ("geçişlerde ses olmasın", "her zaman 4K ver") Claude bunu profile ekler ve size söyler. Profil sizin bilgisayarınızda kalır, hiçbir projeye ya da repoya girmez. İstediğiniz zaman açıp düzenleyebilirsiniz.
-
-### Yaratıcı ama amaçlı
-
-Skill, Claude'a süslemeyi değil anlatmayı söyler: soyut fikri çizer, izleyicinin bilmeyebileceği araçlar için küçük bir "bu nedir" kutusu gösterir, videonun kendi ölçülmüş verisini ve sizin gerçek ekran görüntülerinizi kullanır, hataları gerçek önce/sonra haliyle gösterir. Video anlamına göre bölümlere ayrılır, başlıklar izleyicinin ne öğreneceğini söyler. Yukarıdaki görseller bu skill ile editlenmiş kendi videolarımdan.
-
-Geçişler şablonun içinde: kesimden önce kapanan kısa bölüm perdesi, araya giren videolar ve kesitler için yazılı perde, görüntünün sıçradığı yerde bulanık geçiş, konunun değiştiği kesimde kararan bulanık geçiş ve sakin bir veda ekranı. Varsayılan olarak geçişlerde ses yoktur.
-
-### Neden işe yarıyor: Claude duymaz
-
-Bu skill sesle ilgili her şeyi ölçerek yapar: Whisper kelime zamanları, 10 ms'lik enerji zarfı ve ses yüksekliği ölçümleri. Bu yüzden:
-
-- **Kesimler ölçülen enerjiye göre yapılır.** Kelime başları ve sonları dalga formundaki gerçek yerinden kesilir.
-- **Görüntü ve ses aynı saatten tetiklenir.** Animasyon da efekt de aynı zaman çizelgesinden çalıştığı için efekt görüntüye oturur.
-- **Ses varsayılan olarak işlenmez.** Gürültü azaltma, EQ ya da kompresör yok, sadece doğrusal kazanç var. Boğuk sesin en sık sebebi bu filtreler.
-- **Her aşamayı bir insan kontrol eder.** Kırpılmış kelimede ve efekt seviyesinde son karar sizin kulağınız.
-
-### Sınırlar
-
-- Claude zevki, duyguyu ya da bir sesin "güzel olup olmadığını" yargılayamaz. İşaretlenen her birleşimi ve her efekt seviyesini dinleyin.
-- Whisper isimlerde ve teknik kelimelerde hata yapar. Dökümü kontrol edin.
-- Konuşma, eğitim, ekran kaydı ve Short videoları için yapıldı. Renk düzeltme, çok kameralı kurgu ve müzik videoları kapsamında değil.
-- Uzun videolar zaman ve token ister. Küçük bir pakette bölüm bölüm çalışın.
-
-Lisans: MIT.
+MIT. Detaylar için `LICENSE` dosyasına bakınız.
