@@ -36,6 +36,54 @@ body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: anti
 #v { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 #bgLines { position: absolute; inset: 0; opacity: 0.5; }
 
+/* ---------- media overlays layer ---------- */
+#overlays-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 40;
+}
+.media-overlay-item {
+  position: absolute;
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+  object-fit: contain;
+  cursor: move;
+  user-select: none;
+}
+
+/* ---------- 3-word dynamic subtitles box ---------- */
+#subtitles-box {
+  position: absolute;
+  left: 50%;
+  top: 78%;
+  transform: translate(-50%, -50%);
+  z-index: 100;
+  pointer-events: auto;
+  text-align: center;
+  border-radius: 14px;
+  padding: 12px 28px;
+  font-family: var(--sans);
+  font-weight: 800;
+  font-size: 56px;
+  color: #ffffff;
+  background: rgba(15, 17, 22, 0.78);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  visibility: hidden;
+  opacity: 0;
+  display: block;
+  box-sizing: border-box;
+  max-width: 90%;
+  word-break: break-word;
+  user-select: none;
+  cursor: move;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+#subtitles-box .sub-text {
+  display: inline-block;
+}
+
 /* ---------- glass card ---------- */
 .card {
   position: absolute;
@@ -99,3 +147,11 @@ body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: anti
 .veil .prog b { width: 56px; height: 2px; background: var(--line); }
 
 #hud { position: fixed; left: 12px; bottom: 10px; font: 500 12px/1 var(--mono); color: rgba(255, 255, 255, 0.55); z-index: 10; pointer-events: none; }
+
+/* In ?still render mode, hide all HUD & Editor UI chrome */
+body.still-mode #hud,
+body.still-mode #editor-ui,
+body.still-mode .selection-box,
+body.still-mode .editor-handle {
+  display: none !important;
+}

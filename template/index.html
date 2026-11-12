@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=block&subset=latin,latin-ext" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="editor.css">
 </head>
 <!-- data-w / data-h: stage size (1080 x 1920 for a Short). data-theme="light" for the paper look. -->
 <body data-w="1920" data-h="1080">
@@ -51,12 +52,23 @@
         <div class="prog"></div>
       </div>
     </div>
+
+    <!-- overlays layer: custom user images & videos -->
+    <div id="overlays-layer"></div>
+
+    <!-- 3-word dynamic subtitles box (above overlays so subtitles are on top) -->
+    <div id="subtitles-box" class="subtitles-box"><span class="sub-text"></span></div>
   </div>
+
   <div id="hud"></div>
+
+  <!-- Canva/CapCut Studio interactive UI outside stage -->
+  <div id="editor-ui"></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
   <script src="demo.js"></script>
   <script src="script.js"></script>
+  <script src="editor.js"></script>
   <script src="engine.js"></script>
 </body>
 </html>
