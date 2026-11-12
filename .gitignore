@@ -4,3 +4,8 @@ __pycache__/
 template/sfx/*.wav
 work/
 out/
+
+.superpowers/
+__pycache__/
+.pytest_cache/
+assets/
