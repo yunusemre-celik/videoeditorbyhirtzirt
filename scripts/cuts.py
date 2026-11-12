@@ -32,6 +32,121 @@ BURST_ON, BURST_OFF, BURST_MAX = -68.0, -72.0, 12     # release burst after a st
 SNAP_WIN = 0.15     # hand-set points snap to the quietest 10 ms within this window
 
 
+def clamp_speed(val: float) -> float:
+    """Clamp playback speed to [0.25, 4.0]."""
+    try:
+        v = float(val)
+    except (TypeError, ValueError):
+        v = 1.0
+    return float(np.clip(v, 0.25, 4.0))
+
+
+def apply_speed_ranges_to_pieces(pieces: list[dict], words: list[list], speed_ranges: list[dict], fps: int) -> tuple[list[dict], list[list], int]:
+    """Split and scale pieces and word timestamps across program speed ranges.
+    
+    speed_ranges: [{"id": str, "start": float, "end": float, "speed": float}] in initial program seconds.
+    Returns (new_pieces, new_words, total_pf).
+    """
+    if not speed_ranges:
+        total_pf = sum(int(p.get("pf_len", p["b"] - p["a"])) for p in pieces)
+        return list(pieces), list(words), total_pf
+
+    new_pieces = []
+    intervals = []  # (old_start_s, old_end_s, new_start_s, new_end_s, speed)
+    current_new_pf = 0
+
+    for piece in pieces:
+        p_start = piece["p"]
+        p_len = int(piece.get("pf_len", piece["b"] - piece["a"]))
+        p_end = p_start + p_len
+        orig_a, orig_b = piece["a"], piece["b"]
+
+        # Collect cut points strictly inside this piece from all speed ranges
+        cuts = set()
+        for sr in speed_ranges:
+            s_f = int(round(float(sr["start"]) * fps))
+            e_f = int(round(float(sr["end"]) * fps))
+            if p_start < s_f < p_end:
+                cuts.add(s_f)
+            if p_start < e_f < p_end:
+                cuts.add(e_f)
+
+        boundaries = sorted([p_start] + list(cuts) + [p_end])
+        for idx_b in range(len(boundaries) - 1):
+            f0 = boundaries[idx_b]
+            f1 = boundaries[idx_b + 1]
+            if f1 <= f0:
+                continue
+
+            # Fractional map to source frames
+            sub_a = orig_a + int(round((f0 - p_start) * (orig_b - orig_a) / p_len))
+            sub_b = orig_a + int(round((f1 - p_start) * (orig_b - orig_a) / p_len))
+            if sub_b <= sub_a:
+                if sub_a < orig_b:
+                    sub_b = min(orig_b, sub_a + 1)
+                else:
+                    continue
+
+            # Find matching speed from speed_ranges using midpoint
+            mid_sec = ((f0 + f1) / 2.0) / fps
+            sub_spd = float(piece.get("speed", 1.0))
+            for sr in speed_ranges:
+                if float(sr["start"]) <= mid_sec <= float(sr["end"]):
+                    sub_spd = clamp_speed(sr["speed"])
+            sub_spd = clamp_speed(sub_spd)
+
+            sub_pf_len = max(1, int(round((sub_b - sub_a) / sub_spd)))
+            sub_p = dict(piece)
+            sub_p["a"] = sub_a
+            sub_p["b"] = sub_b
+            sub_p["speed"] = sub_spd
+            sub_p["pf_len"] = sub_pf_len
+            sub_p["p"] = current_new_pf
+            if "fade_out" in sub_p and f1 != p_end:
+                del sub_p["fade_out"]
+
+            old_s_sec = f0 / fps
+            old_e_sec = f1 / fps
+            new_s_sec = current_new_pf / fps
+            new_e_sec = (current_new_pf + sub_pf_len) / fps
+            intervals.append((old_s_sec, old_e_sec, new_s_sec, new_e_sec, sub_spd))
+
+            current_new_pf += sub_pf_len
+            new_pieces.append(sub_p)
+
+    def _map_time(t: float) -> float:
+        if not intervals:
+            return t
+        if t <= intervals[0][0]:
+            f0_old, f1_old, f0_new, f1_new, spd = intervals[0]
+            return f0_new + (t - f0_old) / spd
+        if t >= intervals[-1][1]:
+            f0_old, f1_old, f0_new, f1_new, spd = intervals[-1]
+            return f1_new + (t - f1_old) / spd
+        for f0_old, f1_old, f0_new, f1_new, spd in intervals:
+            if f0_old <= t <= f1_old:
+                if f1_old > f0_old:
+                    frac = (t - f0_old) / (f1_old - f0_old)
+                    return f0_new + frac * (f1_new - f0_new)
+                return f0_new
+        for i in range(len(intervals) - 1):
+            if intervals[i][1] <= t <= intervals[i + 1][0]:
+                gap_len = intervals[i + 1][0] - intervals[i][1]
+                frac = (t - intervals[i][1]) / gap_len if gap_len > 0 else 0.0
+                return intervals[i][3] + frac * (intervals[i + 1][2] - intervals[i][3])
+        return t
+
+    new_words = []
+    for w in words:
+        nw = list(w)
+        nw[0] = round(_map_time(float(w[0])), 3)
+        nw[1] = round(_map_time(float(w[1])), 3)
+        new_words.append(nw)
+
+    return new_pieces, new_words, current_new_pf
+
+
+
 class Clip:
     def __init__(self, work, cid):
         tp = os.path.join(work, 'transcripts', f'{cid}.json')
@@ -114,9 +229,12 @@ def build(project):
         if 'range' in item:
             a, b = item['range']
             af, bf = int(a * fps), -int(-b * fps)
-            pieces.append({'clip': cid, 'a': af, 'b': bf, 'p': pf, 'e': len(entries)})
+            item_speed = clamp_speed(item.get('speed', 1.0))
+            pf_len = max(1, int(round((bf - af) / item_speed)))
+            pieces.append({'clip': cid, 'a': af, 'b': bf, 'p': pf, 'e': len(entries),
+                           'speed': item_speed, 'pf_len': pf_len})
             entries.append({'clip': cid, 'range': [a, b], 'pieces': [len(pieces) - 1], 'text': ''})
-            pf += bf - af
+            pf += pf_len
             continue
         u = item['utt']
         ui = u if isinstance(u, list) else [u, u]
@@ -154,25 +272,48 @@ def build(project):
             af, bf = int(max(0.0, a2) * fps), -int(-b2 * fps)
             if bf <= af:
                 continue
-            p = {'clip': cid, 'a': af, 'b': bf, 'p': pf, 'e': len(entries)}
+            item_speed = clamp_speed(item.get('speed', 1.0))
+            pf_len = max(1, int(round((bf - af) / item_speed)))
+            p = {'clip': cid, 'a': af, 'b': bf, 'p': pf, 'e': len(entries),
+                 'speed': item_speed, 'pf_len': pf_len}
             if j == len(merged) - 1 and cutE and exact:
                 p['fade_out'] = 0.05      # a hand-set end inside running speech fades over 50 ms
             pieces.append(p)
             ent['pieces'].append(len(pieces) - 1)
-            pf += bf - af
+            pf += pf_len
         entries.append(ent)
 
     words = []
     for p in pieces:
         a, b = p['a'] / fps, p['b'] / fps
+        spd = float(p.get('speed', 1.0))
         for u in C(p['clip']).utts:
             if u['end'] < a or u['start'] > b:
                 continue
             for w0, w1, w in u['words']:
                 if w1 > a + 0.04 and w0 < b - 0.04:
                     s0, e0 = max(w0, a), min(w1, b)
-                    words.append([round(p['p'] / fps + s0 - a, 3), round(p['p'] / fps + e0 - a, 3), w, p['e']])
+                    words.append([
+                        round(p['p'] / fps + (s0 - a) / spd, 3),
+                        round(p['p'] / fps + (e0 - a) / spd, 3),
+                        w,
+                        p['e']
+                    ])
     words.sort()
+
+    edits_path = os.path.join(work, 'edits.json')
+    if os.path.exists(edits_path):
+        edits = load_json(edits_path)
+        speed_ranges = edits.get('speed_ranges', [])
+        if speed_ranges:
+            pieces, words, pf = apply_speed_ranges_to_pieces(pieces, words, speed_ranges, fps)
+            words.sort()
+            for e in entries:
+                e['pieces'] = []
+            for idx, p in enumerate(pieces):
+                if 0 <= p.get('e', -1) < len(entries):
+                    entries[p['e']]['pieces'].append(idx)
+
     joins = [round(p['p'] / fps, 3) for p in pieces[1:]]
     prog = {'fps': fps, 'frames': pf, 'duration': round(pf / fps, 3), 'clips': clips_map, 'pieces': pieces,
             'entries': entries, 'chapters': chapters, 'joins': joins, 'words': words}
