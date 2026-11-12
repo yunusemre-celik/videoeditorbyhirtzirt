@@ -97,3 +97,30 @@ def test_build_project_subtitles_e2e(tmp_path):
         srt_content = f.read()
     assert "HELLO UNIVERSE!" in srt_content
     assert "NEXT LINE" in srt_content
+
+
+def test_chunk_three_words_filters_punctuation_only_tokens():
+    words = [
+        [0.0, 0.1, "..."],
+        [0.1, 0.2, ","],
+        [0.2, 0.5, "hello"],
+        [0.55, 0.6, "."],
+        [0.65, 0.9, "world!"],
+        [0.95, 1.0, "?"],
+    ]
+    cues = chunk_three_words(words)
+    assert len(cues) == 1
+    assert cues[0]["text"] == "hello world!"
+    assert [w[2] for w in cues[0]["words"]] == ["hello", "world!"]
+
+
+def test_chunk_three_words_breaks_on_quote_wrapped_punctuation():
+    words = [
+        [0.0, 0.3, '"Wait."'],
+        [0.35, 0.6, "Go"],
+    ]
+    cues = chunk_three_words(words)
+    assert len(cues) == 2
+    assert cues[0]["text"] == '"Wait."'
+    assert cues[1]["text"] == "Go"
+

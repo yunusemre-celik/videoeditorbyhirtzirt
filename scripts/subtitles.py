@@ -36,12 +36,12 @@ def chunk_three_words(
     - silence gap between current word end and next word start >= pause_break
     - end of words list
 
-    Empty or whitespace-only words are filtered out.
+    Empty, whitespace-only, or punctuation-only tokens are filtered out.
     Ensures end > start with a minimum duration fallback of 0.2s.
     """
     valid_words = [
         w for w in (words or [])
-        if len(w) >= 3 and str(w[2]).strip()
+        if len(w) >= 3 and any(c.isalnum() for c in str(w[2]))
     ]
     if not valid_words:
         return []
@@ -56,12 +56,12 @@ def chunk_three_words(
 
         # Check closing conditions
         reached_limit = len(current) >= max_words
-        punct_hit = any(w_text.endswith(p) for p in PUNCT_BREAK)
+        punct_hit = any(w_text.rstrip('"\'').endswith(p) for p in PUNCT_BREAK)
         pause_hit = False
         if i + 1 < len(valid_words):
             next_start = float(valid_words[i + 1][0])
             curr_end = float(w[1])
-            if next_start - curr_end >= pause_break:
+            if round(next_start - curr_end, 3) >= pause_break:
                 pause_hit = True
         is_last = (i == len(valid_words) - 1)
 
