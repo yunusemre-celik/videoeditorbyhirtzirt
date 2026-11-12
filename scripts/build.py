@@ -26,7 +26,8 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _common import decode, ffmpeg, fmt_time, load_json, loudness, project_paths, write_wav  # noqa: E402
+from _common import decode, ffmpeg, fmt_time, load_json, loudness, need, project_paths, write_wav  # noqa: E402
+from cuts import clamp_speed  # noqa: E402
 
 SR = 48000
 FADE_IN, FADE_OUT = 0.004, 0.015
@@ -34,6 +35,61 @@ FADE_IN, FADE_OUT = 0.004, 0.015
 
 def sample(frame, fps):
     return int(round(frame * SR / fps))
+
+
+def atempo_chain(speed: float) -> str:
+    """Return comma-separated FFmpeg atempo filters with factors in [0.5, 2.0]."""
+    spd = clamp_speed(speed)
+    if abs(spd - 1.0) < 1e-4:
+        return ""
+    factors = []
+    curr = spd
+    while curr > 2.0:
+        factors.append(2.0)
+        curr /= 2.0
+    while curr < 0.5:
+        factors.append(0.5)
+        curr /= 0.5
+    factors.append(curr)
+    return ",".join(f"atempo={f:.4f}" for f in factors)
+
+
+def stretch_audio_piece(samples: np.ndarray, speed: float, target_len: int, sr: int = 48000) -> np.ndarray:
+    """Time-stretch an audio slice with atempo filters and fit exactly to target_len."""
+    spd = clamp_speed(speed)
+    target_len = max(0, int(target_len))
+    samples = np.ascontiguousarray(samples, dtype=np.float32)
+    was_1d = (samples.ndim == 1)
+    if was_1d:
+        samples = samples[:, None]
+    channels = samples.shape[1] if samples.ndim > 1 else 1
+
+    if abs(spd - 1.0) <= 1e-3 or len(samples) == 0:
+        out = samples.copy()
+    else:
+        need('ffmpeg')
+        chain = atempo_chain(spd)
+        raw_in = samples.tobytes()
+        proc = subprocess.run(
+            ['ffmpeg', '-v', 'error', '-y', '-f', 'f32le', '-ar', str(sr), '-ac', str(channels),
+             '-i', '-', '-af', chain, '-f', 'f32le', '-ar', str(sr), '-ac', str(channels), '-'],
+            input=raw_in,
+            capture_output=True,
+        )
+        if proc.returncode != 0:
+            err = proc.stderr.decode(errors='replace') if proc.stderr else ''
+            sys.exit(f'ffmpeg atempo stretch failed ({proc.returncode}): {err}')
+        out = np.frombuffer(proc.stdout, dtype=np.float32).reshape(-1, channels)
+
+    if len(out) < target_len:
+        pad = np.zeros((target_len - len(out), channels), dtype=np.float32)
+        out = np.vstack([out, pad]) if len(out) > 0 else pad
+    elif len(out) > target_len:
+        out = out[:target_len]
+
+    if was_1d:
+        out = out[:, 0]
+    return np.ascontiguousarray(out, dtype=np.float32)
 
 
 def build_audio(root, work, prog, a):
@@ -46,8 +102,19 @@ def build_audio(root, work, prog, a):
         x = cache[cid][s0:s1].copy()
         if len(x) < s1 - s0:
             x = np.vstack([x, np.zeros((s1 - s0 - len(x), 2), np.float32)])
-        fi = int(FADE_IN * SR)
-        fo = int(p.get('fade_out', FADE_OUT) * SR)
+
+        spd = float(p.get('speed', 1.0))
+        target_samples = sample(p.get('pf_len', p['b'] - p['a']), fps)
+        if abs(spd - 1.0) > 1e-3:
+            x = stretch_audio_piece(x, spd, target_samples, sr=SR)
+        else:
+            if len(x) < target_samples:
+                x = np.vstack([x, np.zeros((target_samples - len(x), 2), np.float32)])
+            elif len(x) > target_samples:
+                x = x[:target_samples]
+
+        fi = min(int(FADE_IN * SR), len(x))
+        fo = min(int(p.get('fade_out', FADE_OUT) * SR), len(x))
         x[:fi] *= np.linspace(0, 1, fi, dtype=np.float32)[:, None]
         x[-fo:] *= np.linspace(1, 0, fo, dtype=np.float32)[:, None]
         parts.append(x)
@@ -102,9 +169,16 @@ def build_video(root, work, prog, a):
     def seg(i):
         p = prog['pieces'][i]
         src = os.path.join(root, prog['clips'][p['clip']])
-        # seek half a frame early: the first decoded frame is then exactly frame a
-        ffmpeg('-ss', f'{(p["a"] - 0.5) / fps:.5f}', '-i', src, '-frames:v', str(p['b'] - p['a']), '-vf', vf, *enc,
-               *common, os.path.join(seg_dir, f'{i:05d}.mp4'))
+        spd = float(p.get('speed', 1.0))
+        pf_len = int(p.get('pf_len', p['b'] - p['a']))
+        if abs(spd - 1.0) > 1e-3:
+            seg_vf = f'setpts=(PTS-STARTPTS)/{spd:.6f},{vf}'
+            ffmpeg('-ss', f'{(p["a"] - 0.5) / fps:.5f}', '-t', f'{(p["b"] - p["a"]) / fps:.5f}',
+                   '-i', src, '-frames:v', str(pf_len), '-vf', seg_vf, *enc,
+                   *common, os.path.join(seg_dir, f'{i:05d}.mp4'))
+        else:
+            ffmpeg('-ss', f'{(p["a"] - 0.5) / fps:.5f}', '-i', src, '-frames:v', str(pf_len),
+                   '-vf', vf, *enc, *common, os.path.join(seg_dir, f'{i:05d}.mp4'))
 
     with ThreadPoolExecutor(a.workers) as ex:
         list(ex.map(seg, range(len(prog['pieces']))))
