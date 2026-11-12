@@ -173,6 +173,10 @@ class RangeHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json({'ok': False, 'error': f'Invalid JSON: {e}'}, status=400)
             return
 
+        if not isinstance(data, dict):
+            self._send_json({'ok': False, 'error': 'Edits payload must be a JSON object'}, status=400)
+            return
+
         work_dir = os.path.join(self.project_dir, 'work')
         os.makedirs(work_dir, exist_ok=True)
         edits_path = os.path.join(work_dir, 'edits.json')

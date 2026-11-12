@@ -109,7 +109,11 @@ def mix_audio_buffers(
                 if not os.path.isfile(resolved_path):
                     continue
 
-                raw = decode(resolved_path, SR, 2).astype(np.float64)
+                try:
+                    raw = decode(resolved_path, SR, 2).astype(np.float64)
+                except Exception:
+                    continue
+
                 if raw.ndim == 1:
                     raw = np.column_stack([raw, raw])
                 elif raw.ndim == 2 and raw.shape[1] == 1:
@@ -121,12 +125,14 @@ def mix_audio_buffers(
                     if trim_samples < len(raw):
                         raw = raw[trim_samples:]
                     else:
-                        raw = np.zeros((0, 2), dtype=np.float64)
+                        continue
 
                 end = clip.get('end')
-                if end is not None and float(end) > start:
-                    dur_samples = int((float(end) - start) * SR)
+                if end is not None:
+                    dur_samples = max(0, int(round((float(end) - start) * SR)))
                     raw = raw[:dur_samples]
+                    if len(raw) == 0:
+                        continue
 
                 if gain_db != 0.0:
                     raw = raw * (10.0 ** (gain_db / 20.0))

@@ -36,6 +36,24 @@ def test_mix_audio_buffers_mixes_custom_audio_and_truncates_overflow(tmp_path):
     assert mixed.shape == (sr, 2)
     assert np.abs(mixed[int(0.6 * sr):int(0.9 * sr)]).max() > 0.05
 
+    # Verify that an audio clip with end <= start plays 0 samples
+    voice_empty = np.zeros((sr, 2), dtype=np.float64)
+    clips_inverted = [
+        {"id": "inv1", "type": "mp3", "name": "custom.wav", "src": "assets/custom.wav", "start": 0.5, "end": 0.2},
+        {"id": "zero1", "type": "mp3", "name": "custom.wav", "src": "assets/custom.wav", "start": 0.5, "end": 0.5},
+    ]
+    mixed_inverted = mix_audio_buffers(voice_empty, [], clips_inverted, str(tmp_path))
+    assert np.all(mixed_inverted == 0.0)
+
+    # Verify corrupted audio file is skipped gracefully without crashing
+    corrupt_wav = tmp_path / "assets" / "corrupt.wav"
+    corrupt_wav.write_bytes(b"not a valid audio file content")
+    clips_corrupt = [
+        {"id": "bad1", "type": "mp3", "name": "corrupt.wav", "src": "assets/corrupt.wav", "start": 0.1, "end": 0.4},
+    ]
+    mixed_corrupt = mix_audio_buffers(voice_empty, [], clips_corrupt, str(tmp_path))
+    assert np.all(mixed_corrupt == 0.0)
+
 
 def test_serve_api_edits_and_assets_upload(tmp_path):
     srv = create_server(str(tmp_path), port=0)
@@ -62,6 +80,17 @@ def test_serve_api_edits_and_assets_upload(tmp_path):
             resp = json.loads(r.read().decode())
             assert resp["ok"] is True
         assert json.loads((tmp_path / "work" / "edits.json").read_text())["subtitles"]["y"] == 0.65
+
+        # 2b. POST /api/edits rejects non-dict payload
+        req_list = urllib.request.Request(
+            f"{base}/api/edits",
+            data=b"[1, 2, 3]",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as exc_info:
+            urllib.request.urlopen(req_list)
+        assert exc_info.value.code == 400
 
         # 3. POST /api/assets uploads a PNG and rejects .exe
         png_bytes = b"\x89PNG\r\n\x1a\nfake"
