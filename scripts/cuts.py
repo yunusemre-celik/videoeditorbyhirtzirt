@@ -41,6 +41,131 @@ def clamp_speed(val: float) -> float:
     return float(np.clip(v, 0.25, 4.0))
 
 
+def apply_deleted_ranges_to_pieces(
+    pieces: list[dict],
+    words: list[list],
+    deleted_ranges: list[dict],
+    fps: int,
+    chapters: list[dict] | None = None,
+) -> tuple[list[dict], list[list], int]:
+    """Excise deleted_ranges from pieces, words, and chapters.
+
+    deleted_ranges: [{"id": str, "start": float, "end": float}] in initial program seconds.
+    Returns (new_pieces, new_words, total_pf). If chapters is provided, mutates ch['time'] and ch['frame'] in-place.
+    """
+    if not deleted_ranges:
+        total_pf = sum(int(p.get("pf_len", p["b"] - p["a"])) for p in pieces)
+        return list(pieces), list(words), total_pf
+
+    raw_intervals = []
+    for dr in deleted_ranges:
+        try:
+            s = float(dr.get("start", 0.0))
+            e = float(dr.get("end", 0.0))
+        except (TypeError, ValueError):
+            continue
+        if s > e:
+            s, e = e, s
+        if e > s:
+            raw_intervals.append((s, e))
+
+    if not raw_intervals:
+        total_pf = sum(int(p.get("pf_len", p["b"] - p["a"])) for p in pieces)
+        return list(pieces), list(words), total_pf
+
+    raw_intervals.sort(key=lambda x: x[0])
+    merged_del = []
+    for s, e in raw_intervals:
+        if not merged_del:
+            merged_del.append([s, e])
+        else:
+            if s <= merged_del[-1][1]:
+                merged_del[-1][1] = max(merged_del[-1][1], e)
+            else:
+                merged_del.append([s, e])
+
+    new_pieces = []
+    current_new_pf = 0
+
+    for piece in pieces:
+        p_start = piece["p"]
+        p_len = int(piece.get("pf_len", piece["b"] - piece["a"]))
+        if p_len <= 0:
+            continue
+        p_end = p_start + p_len
+        orig_a, orig_b = piece["a"], piece["b"]
+        orig_spd = float(piece.get("speed", 1.0))
+
+        # Collect deleted intervals overlapping this piece
+        del_intervals_in_piece = []
+        for del_s, del_e in merged_del:
+            del_sf = int(round(del_s * fps))
+            del_ef = int(round(del_e * fps))
+            d_start = max(p_start, del_sf)
+            d_end = min(p_end, del_ef)
+            if d_end > d_start:
+                del_intervals_in_piece.append((d_start, d_end))
+
+        # Find kept intervals as complement of deleted sub-intervals
+        kept_intervals = []
+        curr = p_start
+        for d_s, d_e in del_intervals_in_piece:
+            if d_s > curr:
+                kept_intervals.append((curr, d_s))
+            curr = max(curr, d_e)
+        if curr < p_end:
+            kept_intervals.append((curr, p_end))
+
+        for f0, f1 in kept_intervals:
+            if f1 <= f0:
+                continue
+
+            sub_a = orig_a + int(round((f0 - p_start) * (orig_b - orig_a) / p_len))
+            sub_b = orig_a + int(round((f1 - p_start) * (orig_b - orig_a) / p_len))
+            if sub_b <= sub_a:
+                if sub_a < orig_b:
+                    sub_b = min(orig_b, sub_a + 1)
+                else:
+                    continue
+
+            sub_pf_len = max(1, int(round((sub_b - sub_a) / orig_spd)))
+            sub_p = dict(piece)
+            sub_p["a"] = sub_a
+            sub_p["b"] = sub_b
+            sub_p["p"] = current_new_pf
+            sub_p["pf_len"] = sub_pf_len
+            if "fade_out" in sub_p and f1 != p_end:
+                del sub_p["fade_out"]
+
+            current_new_pf += sub_pf_len
+            new_pieces.append(sub_p)
+
+    def _deleted_duration_before(t: float) -> float:
+        return sum(min(max(0.0, t - s), e - s) for s, e in merged_del)
+
+    new_words = []
+    for w in words:
+        w_start = float(w[0])
+        w_end = float(w[1])
+        mid = (w_start + w_end) / 2.0
+        # Filter out if midpoint falls inside any merged deleted range
+        if any(s <= mid <= e for s, e in merged_del):
+            continue
+        nw = list(w)
+        nw[0] = round(w_start - _deleted_duration_before(w_start), 3)
+        nw[1] = round(w_end - _deleted_duration_before(w_end), 3)
+        new_words.append(nw)
+
+    if chapters:
+        for ch in chapters:
+            t = float(ch['time'])
+            new_t = round(t - _deleted_duration_before(t), 3)
+            ch['time'] = new_t
+            ch['frame'] = int(round(new_t * fps))
+
+    return new_pieces, new_words, current_new_pf
+
+
 def apply_speed_ranges_to_pieces(
     pieces: list[dict],
     words: list[list],
@@ -315,6 +440,15 @@ def build(project):
     edits_path = os.path.join(work, 'edits.json')
     if os.path.exists(edits_path):
         edits = load_json(edits_path)
+        deleted_ranges = edits.get('deleted_ranges', [])
+        if deleted_ranges:
+            pieces, words, pf = apply_deleted_ranges_to_pieces(pieces, words, deleted_ranges, fps, chapters=chapters)
+            words.sort()
+            for e in entries:
+                e['pieces'] = []
+            for idx, p in enumerate(pieces):
+                if 0 <= p.get('e', -1) < len(entries):
+                    entries[p['e']]['pieces'].append(idx)
         speed_ranges = edits.get('speed_ranges', [])
         if speed_ranges:
             pieces, words, pf = apply_speed_ranges_to_pieces(pieces, words, speed_ranges, fps, chapters=chapters)
