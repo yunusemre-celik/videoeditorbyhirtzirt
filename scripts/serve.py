@@ -404,7 +404,7 @@ class RangeHandler(http.server.SimpleHTTPRequestHandler):
             if os.path.isfile(transcribe_script):
                 for f in candidates:
                     subprocess.run(
-                        [sys.executable, transcribe_script, '--project', self.project_dir, os.path.join('src', f)],
+                        [sys.executable, transcribe_script, '--project', self.project_dir, os.path.join(self.project_dir, 'src', f)],
                         check=True,
                     )
 
@@ -412,7 +412,7 @@ class RangeHandler(http.server.SimpleHTTPRequestHandler):
             if not os.path.isfile(edl_path):
                 if os.path.isfile(auto_cut_script):
                     subprocess.run(
-                        [sys.executable, auto_cut_script, '--project', self.project_dir, '--clip', stems[0]],
+                        [sys.executable, auto_cut_script, '--project', self.project_dir],
                         check=True,
                     )
 
@@ -431,16 +431,23 @@ class RangeHandler(http.server.SimpleHTTPRequestHandler):
         render_script = os.path.join(scripts_dir, 'render.mjs')
         mix_script = os.path.join(scripts_dir, 'mix.py')
         port = getattr(self.server, 'server_port', 5600)
+        out_dir = os.path.join(self.project_dir, 'out')
+        frames_dir = os.path.join(out_dir, 'frames')
+        final_out = os.path.join(out_dir, 'FINAL.mp4')
+        os.makedirs(out_dir, exist_ok=True)
 
         try:
             import subprocess
             if os.path.isfile(render_script):
                 subprocess.run(
-                    ['node', render_script, '--project', self.project_dir, '--scene', f'http://127.0.0.1:{port}/scene/'],
+                    ['node', render_script, f'http://127.0.0.1:{port}/scene/', '--out', frames_dir, '--workers', '4', '--dpr', '2'],
                     check=True,
                 )
             if os.path.isfile(mix_script):
-                subprocess.run([sys.executable, mix_script, '--project', self.project_dir], check=True)
+                subprocess.run(
+                    [sys.executable, mix_script, '--project', self.project_dir, '--video', frames_dir, '--out', final_out],
+                    check=True,
+                )
 
             self._send_json({'ok': True, 'download_url': '../out/FINAL.mp4'})
         except Exception as e:

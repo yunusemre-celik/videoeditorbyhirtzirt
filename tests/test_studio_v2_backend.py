@@ -233,11 +233,13 @@ def test_api_init_project(tmp_path, monkeypatch):
             assert resp["ok"] is True
             assert resp["clips"] == ["clip1", "clip2"]
 
-        # Verify transcribe called on each clip, auto_cut on first clip, cuts, build
+        # Verify transcribe called on each clip with absolute src path, auto_cut on project, cuts, build
         cmd_strs = [" ".join(str(x) for x in c) for c in recorded_commands]
-        assert any("transcribe.py" in s and "clip1.mp4" in s for s in cmd_strs)
-        assert any("transcribe.py" in s and "clip2.mov" in s for s in cmd_strs)
-        assert any("auto_cut.py" in s and "--clip clip1" in s for s in cmd_strs)
+        expected_clip1 = str(tmp_path / "src" / "clip1.mp4")
+        expected_clip2 = str(tmp_path / "src" / "clip2.mov")
+        assert any("transcribe.py" in s and expected_clip1 in s for s in cmd_strs)
+        assert any("transcribe.py" in s and expected_clip2 in s for s in cmd_strs)
+        assert any("auto_cut.py" in s and "--project" in s and "--clip" not in s for s in cmd_strs)
         assert any("cuts.py" in s for s in cmd_strs)
         assert any("build.py" in s for s in cmd_strs)
     finally:
@@ -267,8 +269,10 @@ def test_api_export(tmp_path, monkeypatch):
             assert resp["download_url"] == "../out/FINAL.mp4"
 
         cmd_strs = [" ".join(str(x) for x in c) for c in recorded_commands]
-        assert any("render.mjs" in s and f"http://127.0.0.1:{port}/scene/" in s for s in cmd_strs)
-        assert any("mix.py" in s for s in cmd_strs)
+        frames_dir = str(tmp_path / "out" / "frames")
+        final_out = str(tmp_path / "out" / "FINAL.mp4")
+        assert any("render.mjs" in s and f"http://127.0.0.1:{port}/scene/" in s and "--out" in s and frames_dir in s for s in cmd_strs)
+        assert any("mix.py" in s and "--video" in s and frames_dir in s and "--out" in s and final_out in s for s in cmd_strs)
     finally:
         srv.shutdown()
         srv.server_close()
