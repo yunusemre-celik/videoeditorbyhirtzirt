@@ -141,6 +141,30 @@
     if (!editorUi || !stage) return;
 
     let edits = JSON.parse(JSON.stringify(initialEdits));
+    if (!edits.deleted_ranges) edits.deleted_ranges = [];
+    if (!edits.audio_clips) edits.audio_clips = [];
+    if (!edits.media_overlays) edits.media_overlays = [];
+    if (!edits.speed_ranges) edits.speed_ranges = [];
+
+    // Inject Safe Zone Guide into stage
+    let safeZoneGuide = stage.querySelector('#safe-zone-guide');
+    if (!safeZoneGuide) {
+      safeZoneGuide = document.createElement('div');
+      safeZoneGuide.id = 'safe-zone-guide';
+      safeZoneGuide.innerHTML = `
+        <div class="safe-zone-header-mock">Top Navigation Safe Area</div>
+        <div class="safe-zone-right">
+          <div class="safe-zone-btn-mock">❤️</div>
+          <div class="safe-zone-btn-mock">💬</div>
+          <div class="safe-zone-btn-mock">↗️</div>
+          <div class="safe-zone-btn-mock">🎵</div>
+        </div>
+        <div class="safe-zone-bottom">
+          <div class="safe-zone-caption-mock">@creator · TikTok / Reels Safe Caption Zone</div>
+        </div>
+      `;
+      stage.appendChild(safeZoneGuide);
+    }
     const history = createHistoryManager(edits, 20);
 
     let activeTab = 'assets'; // 'assets' | 'sfx'
@@ -271,9 +295,13 @@
           <button class="aspect-btn ${edits.aspect === '16:9' ? 'active' : ''}" id="aspect-16-9">16:9 (Landscape)</button>
         </div>
         <div class="header-actions">
+          <button class="tool-btn" id="btn-safe-zone" title="Toggle TikTok / Reels Safe Zone Guide">📱 Safe Zone</button>
           <button class="tool-btn" id="btn-undo" title="Undo (Ctrl+Z)">⤺ Undo</button>
           <button class="tool-btn" id="btn-redo" title="Redo (Ctrl+Y)">⤼ Redo</button>
+          <button class="tool-btn" id="btn-rebuild" title="Rebuild cuts and preview">⚡ Rebuild</button>
           <button class="tool-btn primary" id="btn-save" title="Save (Ctrl+S)">💾 Save</button>
+          <button class="tool-btn" id="btn-export" style="background:#8957e5;border-color:#a371f7;color:#fff;" title="Export Final MP4">🎬 Export MP4</button>
+          <a class="tool-btn" id="btn-download-final" style="display:none;background:#2ea043;border-color:#3fb950;color:#fff;" href="../out/FINAL.mp4" download="FINAL.mp4">⬇ Download FINAL.mp4</a>
         </div>
       </div>
 
@@ -287,9 +315,10 @@
 
       <div id="editor-right-panel" class="interactive">
         <div class="panel-tabs">
-          <div class="panel-tab ${activeInspectorTab === 'subtitles' ? 'active' : ''}" data-itab="subtitles">Subtitles</div>
-          <div class="panel-tab ${activeInspectorTab === 'overlays' ? 'active' : ''}" data-itab="overlays">Overlays</div>
-          <div class="panel-tab ${activeInspectorTab === 'speed' ? 'active' : ''}" data-itab="speed">Speed</div>
+          <div class="panel-tab ${activeInspectorTab === 'subtitles' ? 'active' : ''}" data-itab="subtitles" data-tab="subtitles">Subtitles</div>
+          <div class="panel-tab ${activeInspectorTab === 'overlays' ? 'active' : ''}" data-itab="overlays" data-tab="overlays">Overlays</div>
+          <div class="panel-tab ${activeInspectorTab === 'speed' ? 'active' : ''}" data-itab="speed" data-tab="speed">Speed</div>
+          <div class="panel-tab ${activeInspectorTab === 'audio' ? 'active' : ''}" data-itab="audio" data-tab="audio">Audio</div>
         </div>
         <div class="panel-content" id="right-panel-content"></div>
       </div>
@@ -315,6 +344,9 @@
           <div class="timeline-track" id="track-speed">
             <span class="timeline-track-label">Speed Ranges</span>
           </div>
+          <div class="timeline-track" id="track-audio">
+            <span class="timeline-track-label">Audio / SFX</span>
+          </div>
         </div>
       </div>
 
@@ -323,9 +355,13 @@
     `;
 
     // DOM References
+    const btnSafeZone = document.getElementById('btn-safe-zone');
     const btnUndo = document.getElementById('btn-undo');
     const btnRedo = document.getElementById('btn-redo');
+    const btnRebuild = document.getElementById('btn-rebuild');
     const btnSave = document.getElementById('btn-save');
+    const btnExport = document.getElementById('btn-export');
+    const btnDownloadFinal = document.getElementById('btn-download-final');
     const btn916 = document.getElementById('aspect-9-16');
     const btn169 = document.getElementById('aspect-16-9');
     const leftContent = document.getElementById('left-panel-content');
@@ -345,9 +381,78 @@
       }
     }
 
+    if (btnSafeZone && safeZoneGuide) {
+      btnSafeZone.addEventListener('click', () => {
+        const active = safeZoneGuide.classList.toggle('active');
+        btnSafeZone.classList.toggle('active', active);
+      });
+    }
+
     if (btnUndo) btnUndo.addEventListener('click', undoAction);
     if (btnRedo) btnRedo.addEventListener('click', redoAction);
     if (btnSave) btnSave.addEventListener('click', () => saveEditsToServer());
+
+    if (btnRebuild) {
+      btnRebuild.addEventListener('click', async () => {
+        btnRebuild.disabled = true;
+        showToast('Rebuilding preview...');
+        try {
+          await fetch('/api/edits', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(edits),
+          });
+          const r = await fetch('/api/rebuild', { method: 'POST' });
+          const data = await r.json();
+          if (data.ok) {
+            showToast('Preview rebuilt!');
+            setTimeout(() => location.reload(), 600);
+          } else {
+            showToast('Rebuild failed: ' + (data.error || 'Server error'));
+            btnRebuild.disabled = false;
+          }
+        } catch (err) {
+          showToast('Rebuild failed: ' + err.message);
+          btnRebuild.disabled = false;
+        }
+      });
+    }
+
+    if (btnExport) {
+      btnExport.addEventListener('click', async () => {
+        btnExport.disabled = true;
+        showToast('Exporting final video...');
+        try {
+          await fetch('/api/edits', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(edits),
+          });
+          const r = await fetch('/api/export', { method: 'POST' });
+          const data = await r.json();
+          if (data.ok) {
+            showToast('Export complete!');
+            const dlUrl = data.download_url || '../out/FINAL.mp4';
+            if (btnDownloadFinal) {
+              btnDownloadFinal.href = dlUrl;
+              btnDownloadFinal.style.display = 'inline-flex';
+            }
+            const a = document.createElement('a');
+            a.href = dlUrl;
+            a.download = 'FINAL.mp4';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+          } else {
+            showToast('Export failed: ' + (data.error || 'Server error'));
+          }
+        } catch (err) {
+          showToast('Export failed: ' + err.message);
+        } finally {
+          btnExport.disabled = false;
+        }
+      });
+    }
 
     // Aspect Toggle
     if (btn916) {
@@ -367,21 +472,23 @@
       });
     }
 
-    // Tabs
+    // Left Panel Tabs
     editorUi.querySelectorAll('.panel-tab[data-tab]').forEach((tab) => {
+      if (tab.dataset.itab) return; // Skip inspector tabs
       tab.addEventListener('click', () => {
-        editorUi.querySelectorAll('.panel-tab[data-tab]').forEach((t) => t.classList.remove('active'));
+        editorUi.querySelectorAll('#editor-left-panel .panel-tab').forEach((t) => t.classList.remove('active'));
         tab.classList.add('active');
         activeTab = tab.dataset.tab;
         renderLeftPanel();
       });
     });
 
+    // Right Inspector Tabs
     editorUi.querySelectorAll('.panel-tab[data-itab]').forEach((tab) => {
       tab.addEventListener('click', () => {
         editorUi.querySelectorAll('.panel-tab[data-itab]').forEach((t) => t.classList.remove('active'));
         tab.classList.add('active');
-        activeInspectorTab = tab.dataset.itab;
+        activeInspectorTab = tab.dataset.itab || tab.dataset.tab;
         renderInspector();
       });
     });
@@ -391,6 +498,16 @@
       if (!leftContent) return;
       if (activeTab === 'assets') {
         let html = `
+          <div class="source-video-section">
+            <div class="inspector-title" style="margin-bottom:6px;">Source Footage (<code>src/</code>)</div>
+            <div class="source-actions">
+              <button class="tool-btn" id="btn-upload-src">📁 + Upload Raw Video</button>
+              <button class="tool-btn primary" id="btn-init-project">⚡ Auto-Cut & Transcribe</button>
+            </div>
+            <input type="file" id="src-file-input" style="display:none;" accept=".mp4,.mov,.webm,.mkv" />
+            <div class="src-file-status" id="src-file-status"></div>
+          </div>
+
           <div class="upload-box" id="upload-box-btn">
             <span style="font-size:20px;margin-bottom:4px;">☁️</span>
             <strong>Upload Media Asset</strong>
@@ -415,6 +532,76 @@
         }
         html += `</div>`;
         leftContent.innerHTML = html;
+
+        const btnUploadSrc = document.getElementById('btn-upload-src');
+        const srcFileInput = document.getElementById('src-file-input');
+        const btnInitProject = document.getElementById('btn-init-project');
+        const srcStatus = document.getElementById('src-file-status');
+
+        if (btnUploadSrc && srcFileInput) {
+          btnUploadSrc.addEventListener('click', () => srcFileInput.click());
+        }
+
+        if (srcFileInput) {
+          srcFileInput.addEventListener('change', () => {
+            const file = srcFileInput.files && srcFileInput.files[0];
+            if (!file) return;
+            showToast(`Uploading ${file.name} to src/...`);
+            fetch('/api/source-video', {
+              method: 'POST',
+              headers: { 'X-Filename': file.name },
+              body: file,
+            })
+              .then((r) => r.json())
+              .then((data) => {
+                if (data.ok) {
+                  showToast(`Uploaded ${data.file} to src/`);
+                  loadProjectStatus();
+                } else {
+                  showToast(`Upload failed: ${data.error || 'Server error'}`);
+                }
+              })
+              .catch((err) => showToast(`Upload failed: ${err.message}`))
+              .finally(() => { srcFileInput.value = ''; });
+          });
+        }
+
+        if (btnInitProject) {
+          btnInitProject.addEventListener('click', async () => {
+            btnInitProject.disabled = true;
+            showToast('Running Auto-Cut & Transcribe...');
+            try {
+              const r = await fetch('/api/init-project', { method: 'POST' });
+              const data = await r.json();
+              if (data.ok) {
+                showToast('Project initialized! Reloading preview...');
+                setTimeout(() => location.reload(), 1000);
+              } else {
+                showToast('Init failed: ' + (data.error || 'Server error'));
+                btnInitProject.disabled = false;
+              }
+            } catch (err) {
+              showToast('Init failed: ' + err.message);
+              btnInitProject.disabled = false;
+            }
+          });
+        }
+
+        function loadProjectStatus() {
+          fetch('/api/project-status')
+            .then((r) => r.json())
+            .then((data) => {
+              if (data.ok && srcStatus && Array.isArray(data.src_files)) {
+                if (data.src_files.length) {
+                  srcStatus.textContent = `src/: ${data.src_files.join(', ')}`;
+                } else {
+                  srcStatus.textContent = 'No clips in src/ yet.';
+                }
+              }
+            })
+            .catch(() => {});
+        }
+        loadProjectStatus();
 
         const uploadBox = document.getElementById('upload-box-btn');
         if (uploadBox) {
@@ -447,8 +634,9 @@
               edits.media_overlays.push(newOv);
               selectedItem = { type: 'overlay', id: newOv.id };
               activeInspectorTab = 'overlays';
-              editorUi.querySelectorAll('.panel-tab[data-itab]').forEach((t) => {
-                t.classList.toggle('active', t.dataset.itab === 'overlays');
+              editorUi.querySelectorAll('.panel-tab[data-itab], .panel-tab[data-tab]').forEach((t) => {
+                const tName = t.dataset.itab || t.dataset.tab;
+                t.classList.toggle('active', tName === 'overlays');
               });
               applyChange();
               showToast(`Inserted overlay ${name}`);
@@ -456,10 +644,13 @@
               const newClip = {
                 id: `audio_${Date.now()}`,
                 type: 'audio',
-                url,
                 name,
+                src: 'assets/' + name,
+                url: url || ('../assets/' + name),
                 start: Math.round(curClock * 100) / 100,
-                gain: 0,
+                end: Math.round(Math.min(duration, curClock + 5) * 100) / 100,
+                trim_start: 0,
+                gain_db: 0,
               };
               if (!edits.audio_clips) edits.audio_clips = [];
               edits.audio_clips.push(newClip);
@@ -493,7 +684,9 @@
               type: 'sfx',
               name: sfxName,
               start: Math.round(curClock * 1000) / 1000,
-              gain: 0,
+              end: Math.round((curClock + 1.0) * 1000) / 1000,
+              trim_start: 0,
+              gain_db: 0,
             };
             if (!edits.audio_clips) edits.audio_clips = [];
             edits.audio_clips.push(newClip);
@@ -542,11 +735,22 @@
 
         let cuesHtml = '';
         cues.forEach((c) => {
-          const isOverridden = sub.overrides && sub.overrides[c.id] !== undefined;
           cuesHtml += `
             <div class="cue-item" data-cue-id="${c.id}" data-cue-start="${c.start}">
               <span class="cue-time" title="Click to seek">${c.start.toFixed(1)}s</span>
               <input type="text" class="cue-input" value="${c.text}" data-cid="${c.id}" />
+              <button class="cue-cut-btn" data-cut-cue="${c.id}" data-cut-start="${c.start}" data-cut-end="${c.end}" data-cut-text="${c.text}" title="Cut phrase from video">✂️</button>
+            </div>
+          `;
+        });
+
+        let deletedCutsHtml = '';
+        (edits.deleted_ranges || []).forEach((del, idx) => {
+          deletedCutsHtml += `
+            <div class="cue-item deleted-cut-item">
+              <span class="cue-time" style="color:#f0524d;">${Number(del.start).toFixed(1)}s - ${Number(del.end).toFixed(1)}s</span>
+              <span style="flex:1;font-size:12px;text-decoration:line-through;color:#8b949e;overflow:hidden;text-overflow:ellipsis;">${del.text || 'Cut segment'}</span>
+              <button class="cue-restore-btn" data-restore-del="${del.id || idx}" title="Restore deleted cut">↺ Restore</button>
             </div>
           `;
         });
@@ -585,6 +789,15 @@
             </div>
             <div class="cues-list">
               ${cuesHtml || '<span style="color:#8b949e;font-size:11px;">No speech words found</span>'}
+            </div>
+          </div>
+
+          <div class="inspector-section">
+            <div class="inspector-title">
+              <span>Deleted Cuts (${(edits.deleted_ranges || []).length})</span>
+            </div>
+            <div class="cues-list" style="max-height:160px;">
+              ${deletedCutsHtml || '<span style="color:#8b949e;font-size:11px;">No cuts yet. Click ✂️ on any phrase above to cut.</span>'}
             </div>
           </div>
         `;
@@ -649,6 +862,37 @@
             if (!edits.subtitles.overrides) edits.subtitles.overrides = {};
             edits.subtitles.overrides[cid] = input.value;
             applyChange();
+          });
+        });
+
+        rightContent.querySelectorAll('[data-cut-cue]').forEach((btn) => {
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (!edits.deleted_ranges) edits.deleted_ranges = [];
+            edits.deleted_ranges.push({
+              id: 'del-' + Date.now(),
+              start: Number(btn.dataset.cutStart),
+              end: Number(btn.dataset.cutEnd),
+              text: btn.dataset.cutText,
+            });
+            applyChange(true);
+            showToast(`Cut phrase: "${btn.dataset.cutText}"`);
+          });
+        });
+
+        rightContent.querySelectorAll('[data-restore-del]').forEach((btn) => {
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const key = btn.dataset.restoreDel;
+            if (!edits.deleted_ranges) return;
+            const idx = edits.deleted_ranges.findIndex(
+              (d, i) => String(d.id || i) === String(key) || String(i) === String(key)
+            );
+            if (idx !== -1) {
+              edits.deleted_ranges.splice(idx, 1);
+              applyChange(true);
+              showToast('Restored cut phrase');
+            }
           });
         });
       } else if (activeInspectorTab === 'overlays') {
@@ -876,6 +1120,126 @@
             applyChange();
           });
         });
+      } else if (activeInspectorTab === 'audio') {
+        const audioClips = edits.audio_clips || [];
+        let html = `
+          <div class="inspector-section">
+            <div class="inspector-title">
+              <span>Audio Clips & SFX (${audioClips.length})</span>
+            </div>
+            <div class="cues-list" style="max-height:360px;">
+        `;
+        if (!audioClips.length) {
+          html += `<span style="color:#8b949e;font-size:11px;">No audio clips or SFX added yet. Use the Left Panel to insert media.</span>`;
+        } else {
+          audioClips.forEach((clip) => {
+            const startVal = Number(clip.start) || 0;
+            const endVal = clip.end != null ? Number(clip.end) : (startVal + 1.0);
+            const trimVal = Number(clip.trim_start) || 0;
+            const gainVal = clip.gain_db ?? clip.gain ?? 0;
+            html += `
+              <div class="cue-item" data-aud-id="${clip.id}" style="flex-direction:column;align-items:stretch;gap:6px;">
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <span class="cue-time" data-aud-seek="${startVal}">${startVal.toFixed(1)}s</span>
+                  <span style="flex:1;font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;">${clip.type === 'sfx' ? '🔔 ' : '🎵 '}${clip.name}</span>
+                  <button style="background:none;border:none;color:#f0524d;cursor:pointer;" data-del-aud="${clip.id}">✕</button>
+                </div>
+                <div class="prop-row" style="margin-bottom:2px;">
+                  <span class="prop-label">Start / End (s)</span>
+                  <div style="display:flex;gap:4px;align-items:center;">
+                    <input type="number" step="0.1" class="prop-input" data-aud-start="${clip.id}" value="${startVal}" style="width:55px;" />
+                    <span style="color:#8b949e;font-size:11px;">-</span>
+                    <input type="number" step="0.1" class="prop-input" data-aud-end="${clip.id}" value="${endVal}" style="width:55px;" />
+                  </div>
+                </div>
+                <div class="prop-row" style="margin-bottom:2px;">
+                  <span class="prop-label">Trim Start (s)</span>
+                  <input type="number" step="0.1" class="prop-input" data-aud-trim="${clip.id}" value="${trimVal}" style="width:64px;" />
+                </div>
+                <div class="prop-row" style="margin-bottom:2px;">
+                  <span class="prop-label">Gain (dB)</span>
+                  <div style="display:flex;align-items:center;gap:6px;">
+                    <input type="range" min="-24" max="12" step="0.5" class="prop-input" data-aud-gain="${clip.id}" value="${gainVal}" style="width:90px;" />
+                    <span class="gain-val">${gainVal} dB</span>
+                  </div>
+                </div>
+              </div>
+            `;
+          });
+        }
+        html += `</div></div>`;
+        rightContent.innerHTML = html;
+
+        rightContent.querySelectorAll('[data-aud-seek]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const t = Number(btn.dataset.audSeek);
+            if (scene && typeof scene.seek === 'function') scene.seek(t);
+          });
+        });
+
+        rightContent.querySelectorAll('[data-del-aud]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const id = btn.dataset.delAud;
+            edits.audio_clips = (edits.audio_clips || []).filter((c) => c.id !== id);
+            applyChange();
+            showToast('Deleted audio clip');
+          });
+        });
+
+        rightContent.querySelectorAll('[data-aud-start]').forEach((input) => {
+          input.addEventListener('change', () => {
+            const id = input.dataset.audStart;
+            const clip = (edits.audio_clips || []).find((c) => c.id === id);
+            if (clip) {
+              clip.start = Math.max(0, Math.round(Number(input.value) * 10) / 10);
+              if (clip.end != null && clip.end <= clip.start) {
+                clip.end = Math.round((clip.start + 0.5) * 10) / 10;
+              }
+              applyChange();
+            }
+          });
+        });
+
+        rightContent.querySelectorAll('[data-aud-end]').forEach((input) => {
+          input.addEventListener('change', () => {
+            const id = input.dataset.audEnd;
+            const clip = (edits.audio_clips || []).find((c) => c.id === id);
+            if (clip) {
+              const minEnd = Math.round(((clip.start || 0) + 0.1) * 10) / 10;
+              clip.end = Math.max(minEnd, Math.round(Number(input.value) * 10) / 10);
+              applyChange();
+            }
+          });
+        });
+
+        rightContent.querySelectorAll('[data-aud-trim]').forEach((input) => {
+          input.addEventListener('change', () => {
+            const id = input.dataset.audTrim;
+            const clip = (edits.audio_clips || []).find((c) => c.id === id);
+            if (clip) {
+              clip.trim_start = Math.max(0, Math.round(Number(input.value) * 10) / 10);
+              applyChange();
+            }
+          });
+        });
+
+        rightContent.querySelectorAll('[data-aud-gain]').forEach((input) => {
+          input.addEventListener('input', () => {
+            const id = input.dataset.audGain;
+            const clip = (edits.audio_clips || []).find((c) => c.id === id);
+            if (clip) {
+              const val = Number(input.value);
+              clip.gain_db = val;
+              clip.gain = val;
+              const parent = input.closest('.cue-item');
+              const display = parent ? parent.querySelector('.gain-val') : null;
+              if (display) display.textContent = `${val} dB`;
+            }
+          });
+          input.addEventListener('change', () => {
+            applyChange();
+          });
+        });
       }
     }
 
@@ -884,6 +1248,7 @@
       const trackSubs = document.getElementById('track-subs');
       const trackOv = document.getElementById('track-overlays');
       const trackSpd = document.getElementById('track-speed');
+      const trackAud = document.getElementById('track-audio');
       const duration = scene ? scene.duration || 30 : 30;
 
       if (trackSubs) {
@@ -908,8 +1273,10 @@
           const leftPct = (o.start / duration) * 100;
           const widthPct = Math.max(0.8, ((o.end - o.start) / duration) * 100);
           html += `
-            <div class="track-segment ov" style="left:${leftPct}%;width:${widthPct}%;" data-tseek="${o.start}" title="${o.name || o.id}">
-              ${o.name || o.id}
+            <div class="track-segment ov" data-seg-kind="overlay" data-seg-id="${o.id}" style="left:${leftPct}%;width:${widthPct}%;" data-tseek="${o.start}" title="${o.name || o.id}">
+              <div class="seg-handle left" data-seg-handle="left"></div>
+              <span class="seg-label">${o.name || o.id}</span>
+              <div class="seg-handle right" data-seg-handle="right"></div>
             </div>
           `;
         });
@@ -919,21 +1286,44 @@
       if (trackSpd) {
         const speeds = edits.speed_ranges || [];
         let html = '<span class="timeline-track-label">Speed Ranges</span>';
-        speeds.forEach((sr) => {
+        speeds.forEach((sr, idx) => {
           const leftPct = (sr.start / duration) * 100;
           const widthPct = Math.max(0.8, ((sr.end - sr.start) / duration) * 100);
           html += `
-            <div class="track-segment spd" style="left:${leftPct}%;width:${widthPct}%;" data-tseek="${sr.start}">
-              ${sr.speed}x
+            <div class="track-segment spd" data-seg-kind="speed" data-seg-idx="${idx}" style="left:${leftPct}%;width:${widthPct}%;" data-tseek="${sr.start}">
+              <div class="seg-handle left" data-seg-handle="left"></div>
+              <span class="seg-label">${sr.speed}x</span>
+              <div class="seg-handle right" data-seg-handle="right"></div>
             </div>
           `;
         });
         trackSpd.innerHTML = html;
       }
 
+      if (trackAud) {
+        const audioClips = edits.audio_clips || [];
+        let html = '<span class="timeline-track-label">Audio / SFX</span>';
+        audioClips.forEach((clip) => {
+          const start = Number(clip.start) || 0;
+          const end = clip.end != null ? Number(clip.end) : start + 1.0;
+          const leftPct = (start / duration) * 100;
+          const widthPct = Math.max(0.8, ((end - start) / duration) * 100);
+          const icon = clip.type === 'sfx' ? '🔔 ' : '🎵 ';
+          html += `
+            <div class="track-segment ${clip.type === 'sfx' ? 'sfx' : 'aud'}" data-seg-kind="audio" data-seg-id="${clip.id}" style="left:${leftPct}%;width:${widthPct}%;" data-tseek="${start}" title="${clip.name}">
+              <div class="seg-handle left" data-seg-handle="left"></div>
+              <span class="seg-label">${icon}${clip.name}</span>
+              <div class="seg-handle right" data-seg-handle="right"></div>
+            </div>
+          `;
+        });
+        trackAud.innerHTML = html;
+      }
+
       if (timelineTracks) {
         timelineTracks.querySelectorAll('.track-segment[data-tseek]').forEach((el) => {
           el.addEventListener('click', (e) => {
+            if (e.target.closest('[data-seg-handle]')) return;
             e.stopPropagation();
             const t = Number(el.dataset.tseek);
             if (scene && typeof scene.seek === 'function') scene.seek(t);
@@ -951,8 +1341,10 @@
       });
     }
 
-    // Timeline Scrubbing
+    // Timeline Scrubbing & Segment Dragging
     let isScrubbing = false;
+    let timelineDragTarget = null; // { mode: 'move'|'trim-left'|'trim-right', kind, id, idx, startX, initialStart, initialEnd, item }
+
     function handleTimelineScrub(e) {
       if (!timelineTracks) return;
       const rect = timelineTracks.getBoundingClientRect();
@@ -963,17 +1355,102 @@
         scene.seek(t);
       }
     }
+
     if (timelineTracks) {
       timelineTracks.addEventListener('mousedown', (e) => {
+        if (e.target && e.target.closest && e.target.closest('.track-segment')) return;
         isScrubbing = true;
         handleTimelineScrub(e);
       });
+
+      timelineTracks.addEventListener('pointerdown', (e) => {
+        const segEl = e.target.closest('.track-segment[data-seg-kind]');
+        if (!segEl) return;
+        e.stopPropagation();
+
+        const kind = segEl.dataset.segKind;
+        let item = null;
+        let idx = -1;
+        if (kind === 'overlay') {
+          const id = segEl.dataset.segId;
+          item = (edits.media_overlays || []).find((o) => o.id === id);
+          if (item) {
+            selectedItem = { type: 'overlay', id };
+            activeInspectorTab = 'overlays';
+            renderInspector();
+          }
+        } else if (kind === 'speed') {
+          idx = Number(segEl.dataset.segIdx);
+          item = (edits.speed_ranges || [])[idx];
+          activeInspectorTab = 'speed';
+          renderInspector();
+        } else if (kind === 'audio') {
+          const id = segEl.dataset.segId;
+          item = (edits.audio_clips || []).find((a) => a.id === id);
+          activeInspectorTab = 'audio';
+          renderInspector();
+        }
+
+        if (!item) return;
+
+        const handleEl = e.target.closest('[data-seg-handle]');
+        let mode = 'move';
+        if (handleEl) {
+          mode = handleEl.dataset.segHandle === 'left' ? 'trim-left' : 'trim-right';
+        }
+
+        const initialStart = Number(item.start) || 0;
+        const initialEnd = item.end != null ? Number(item.end) : (initialStart + 1.0);
+
+        timelineDragTarget = {
+          mode,
+          kind,
+          item,
+          idx,
+          startX: e.clientX,
+          initialStart,
+          initialEnd,
+        };
+      });
     }
+
     window.addEventListener('mousemove', (e) => {
       if (isScrubbing) handleTimelineScrub(e);
     });
+
+    window.addEventListener('pointermove', (e) => {
+      if (!timelineDragTarget || !timelineTracks) return;
+      const tracksRect = timelineTracks.getBoundingClientRect();
+      const duration = scene ? scene.duration || 30 : 30;
+      const dx = e.clientX - timelineDragTarget.startX;
+      const dt = (dx / (tracksRect.width || 1)) * duration;
+      const { mode, item, initialStart, initialEnd } = timelineDragTarget;
+
+      if (mode === 'trim-left') {
+        const nextStart = Math.max(0, Math.min(initialEnd - 0.1, initialStart + dt));
+        item.start = Math.round(nextStart * 100) / 100;
+      } else if (mode === 'trim-right') {
+        const nextEnd = Math.max(item.start + 0.1, Math.min(duration, initialEnd + dt));
+        item.end = Math.round(nextEnd * 100) / 100;
+      } else if (mode === 'move') {
+        const length = initialEnd - initialStart;
+        const nextStart = Math.max(0, Math.min(duration - length, initialStart + dt));
+        item.start = Math.round(nextStart * 100) / 100;
+        item.end = Math.round((nextStart + length) * 100) / 100;
+      }
+
+      applyChange(false);
+    });
+
     window.addEventListener('mouseup', () => {
       isScrubbing = false;
+    });
+
+    window.addEventListener('pointerup', () => {
+      if (timelineDragTarget) {
+        timelineDragTarget = null;
+        applyChange(true);
+      }
     });
 
     // Sync Playhead & Timecode
