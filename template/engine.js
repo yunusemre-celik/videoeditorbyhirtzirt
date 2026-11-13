@@ -145,6 +145,15 @@
   /* ---- preview sound: effects play live through WebAudio ---- */
   let actx = null, muted = Q.has('mute');
   const buffers = {};
+  const activeNodes = [];
+
+  function stopActiveCues() {
+    while (activeNodes.length) {
+      const n = activeNodes.pop();
+      try { n.stop(); } catch (e) {}
+    }
+  }
+
   async function loadSfx() {
     if (STILL || !SFX.length) return;
     if (!actx) actx = new AudioContext();
@@ -178,6 +187,7 @@
     } else {
       src.start(0, offset);
     }
+    activeNodes.push(src);
   }
 
   /* ---- clock ---- */
@@ -323,7 +333,7 @@
       } else {
         clock += dt;
       }
-      if (clock >= duration) { clock = duration; playing = false; if (hasVideo()) video.pause(); }
+      if (clock >= duration) { clock = duration; playing = false; if (hasVideo()) video.pause(); stopActiveCues(); }
 
       // Real-time skipping of deleted ranges during preview
       const activeDel = (currentEdits.deleted_ranges || []).find(
@@ -344,9 +354,11 @@
   function play() {
     playing = !playing;
     if (hasVideo()) playing ? video.play() : video.pause();
+    if (!playing) stopActiveCues();
   }
 
   function seek(t) {
+    stopActiveCues();
     clock = prevClock = Math.max(0, Math.min(duration, t));
     if (hasVideo()) video.currentTime = clock;
     apply(clock);

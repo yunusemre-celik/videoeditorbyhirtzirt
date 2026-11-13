@@ -169,6 +169,7 @@ def test_api_source_video_upload(tmp_path):
     t.start()
     try:
         base = f"http://127.0.0.1:{port}"
+        # Small upload
         video_bytes = b"\x00\x00\x00 ftypmp42fakevideo"
         req = urllib.request.Request(
             f"{base}/api/source-video",
@@ -184,6 +185,25 @@ def test_api_source_video_upload(tmp_path):
         saved_file = tmp_path / "src" / "raw_clip.mp4"
         assert saved_file.exists()
         assert saved_file.read_bytes() == video_bytes
+
+        # Large upload (>65536 bytes) to verify chunked streaming
+        large_bytes = b"X" * 150000
+        req_large = urllib.request.Request(
+            f"{base}/api/source-video",
+            data=large_bytes,
+            headers={"X-Filename": "large_clip.mp4", "Content-Type": "application/octet-stream"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req_large) as r:
+            resp_large = json.loads(r.read().decode())
+            assert resp_large["ok"] is True
+            assert resp_large["file"] == "large_clip.mp4"
+
+        saved_large = tmp_path / "src" / "large_clip.mp4"
+        assert saved_large.exists()
+        assert saved_large.read_bytes() == large_bytes
+        # Ensure temporary file was cleaned up / replaced
+        assert not (tmp_path / "src" / "large_clip.mp4.tmp").exists()
 
         # Bad extension rejected
         req_bad = urllib.request.Request(
@@ -233,7 +253,7 @@ def test_api_init_project(tmp_path, monkeypatch):
             assert resp["ok"] is True
             assert resp["clips"] == ["clip1", "clip2"]
 
-        # Verify transcribe called on each clip with absolute src path, auto_cut on project, cuts, build
+        # Verify transcribe called on each clip with absolute src path, auto_cut on project, cuts, subtitles, build
         cmd_strs = [" ".join(str(x) for x in c) for c in recorded_commands]
         expected_clip1 = str(tmp_path / "src" / "clip1.mp4")
         expected_clip2 = str(tmp_path / "src" / "clip2.mov")
@@ -241,7 +261,48 @@ def test_api_init_project(tmp_path, monkeypatch):
         assert any("transcribe.py" in s and expected_clip2 in s for s in cmd_strs)
         assert any("auto_cut.py" in s and "--project" in s and "--clip" not in s for s in cmd_strs)
         assert any("cuts.py" in s for s in cmd_strs)
+        assert any("subtitles.py" in s for s in cmd_strs)
         assert any("build.py" in s for s in cmd_strs)
+
+        # Check execution order: cuts.py before subtitles.py, and subtitles.py before build.py
+        cuts_idx = next(i for i, s in enumerate(cmd_strs) if "cuts.py" in s)
+        subs_idx = next(i for i, s in enumerate(cmd_strs) if "subtitles.py" in s)
+        build_idx = next(i for i, s in enumerate(cmd_strs) if "build.py" in s)
+        assert cuts_idx < subs_idx < build_idx
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_api_rebuild_includes_subtitles(tmp_path, monkeypatch):
+    recorded_commands = []
+
+    def mock_run(cmd, *args, **kwargs):
+        recorded_commands.append(cmd)
+        return True
+
+    monkeypatch.setattr("subprocess.run", mock_run)
+
+    srv = create_server(str(tmp_path), port=0)
+    port = srv.server_address[1]
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    try:
+        base = f"http://127.0.0.1:{port}"
+        req_rebuild = urllib.request.Request(f"{base}/api/rebuild", data=b"{}", method="POST")
+        with urllib.request.urlopen(req_rebuild) as r:
+            resp = json.loads(r.read().decode())
+            assert resp["ok"] is True
+
+        cmd_strs = [" ".join(str(x) for x in c) for c in recorded_commands]
+        assert any("cuts.py" in s for s in cmd_strs)
+        assert any("subtitles.py" in s for s in cmd_strs)
+        assert any("build.py" in s for s in cmd_strs)
+
+        cuts_idx = next(i for i, s in enumerate(cmd_strs) if "cuts.py" in s)
+        subs_idx = next(i for i, s in enumerate(cmd_strs) if "subtitles.py" in s)
+        build_idx = next(i for i, s in enumerate(cmd_strs) if "build.py" in s)
+        assert cuts_idx < subs_idx < build_idx
     finally:
         srv.shutdown()
         srv.server_close()

@@ -648,7 +648,7 @@
                 src: 'assets/' + name,
                 url: url || ('../assets/' + name),
                 start: Math.round(curClock * 100) / 100,
-                end: Math.round(Math.min(duration, curClock + 5) * 100) / 100,
+                end: Math.max(Math.round((curClock + 0.5) * 100) / 100, Math.round(Math.min(duration, curClock + 5) * 100) / 100),
                 trim_start: 0,
                 gain_db: 0,
               };
@@ -679,12 +679,13 @@
           btn.addEventListener('click', () => {
             const sfxName = btn.dataset.sfx;
             const curClock = scene ? Math.max(0, scene.clock || 0) : 0;
+            const duration = scene ? scene.duration || 30 : 30;
             const newClip = {
               id: `sfx_${Date.now()}`,
               type: 'sfx',
               name: sfxName,
-              start: Math.round(curClock * 1000) / 1000,
-              end: Math.round((curClock + 1.0) * 1000) / 1000,
+              start: Math.round(curClock * 100) / 100,
+              end: Math.max(Math.round((curClock + 0.5) * 100) / 100, Math.round(Math.min(duration, curClock + 1) * 100) / 100),
               trim_start: 0,
               gain_db: 0,
             };

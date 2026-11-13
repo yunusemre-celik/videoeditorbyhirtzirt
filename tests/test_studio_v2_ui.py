@@ -377,6 +377,20 @@ def test_editor_js_dom_interactions_in_node():
       throw new Error('Segment handles missing on audio segment in #track-audio: ' + trackAudio.innerHTML);
     }
 
+    // 9. SFX insertion clamps minimum duration when curClock >= duration
+    const sfxTab = editorUi.querySelector('.panel-tab[data-tab="sfx"]');
+    if (!sfxTab) throw new Error('.panel-tab[data-tab="sfx"] missing');
+    sceneMock.clock = 35.0;
+    sceneMock.duration = 30.0;
+    sfxTab.click();
+    const sfxBtn = editorUi.querySelector('.asset-add-btn[data-sfx]');
+    if (!sfxBtn) throw new Error('.asset-add-btn[data-sfx] missing');
+    sfxBtn.click();
+    const insertedSfx = lastAppliedEdits.audio_clips[lastAppliedEdits.audio_clips.length - 1];
+    if (insertedSfx.start !== 35.0 || insertedSfx.end < insertedSfx.start + 0.5) {
+      throw new Error('SFX clip inserted at clock >= duration did not clamp minimum duration: ' + JSON.stringify(insertedSfx));
+    }
+
     console.log('EDITOR_DOM_OK');
     process.exit(0);
     """
@@ -470,9 +484,13 @@ def test_engine_js_deleted_ranges_and_custom_audio_in_node():
       { id: 'sub_2', start: 2.5, end: 3.0, text: 'Keep' }
     ];
     globalThis.buildScene = () => {};
-    globalThis.fetch = async () => ({ ok: false });
+    globalThis.fetch = async (url) => ({
+      ok: true,
+      arrayBuffer: async () => new ArrayBuffer(16)
+    });
 
     // Mock WebAudio AudioContext
+    const allMockSources = [];
     class MockGain {
       constructor() { this.gain = { value: 1 }; }
       connect() { return this; }
@@ -481,12 +499,17 @@ def test_engine_js_deleted_ranges_and_custom_audio_in_node():
       constructor() {
         this.buffer = null;
         this.started = false;
+        this.stopped = false;
         this.startParams = null;
+        allMockSources.push(this);
       }
       connect() { return this; }
       start(...args) {
         this.started = true;
         this.startParams = args;
+      }
+      stop() {
+        this.stopped = true;
       }
     }
     class MockAudioContext {
@@ -519,6 +542,11 @@ def test_engine_js_deleted_ranges_and_custom_audio_in_node():
         ]
       });
 
+      // Test stopActiveCues via seek and pause
+      scene.seek(0.6); // Triggers seek -> calls stopActiveCues
+      scene.play();   // toggle play
+      scene.play();   // toggle pause -> calls stopActiveCues
+
       // At t = 1.5 (inside deleted range), subtitlesBox should be hidden / display none
       scene.render(1.5).then(() => {
         if (subtitlesBox.style.display !== 'none' && subtitlesBox.style.visibility !== 'hidden') {
@@ -532,3 +560,42 @@ def test_engine_js_deleted_ranges_and_custom_audio_in_node():
     proc = subprocess.run(["node", "-e", node_script], cwd=str(ROOT), capture_output=True, text=True)
     assert proc.returncode == 0, proc.stderr
     assert "ENGINE_OK" in proc.stdout
+
+
+def test_audio_and_sfx_clip_insert_min_duration_clamp():
+    editor_code = (ROOT / "template" / "editor.js").read_text(encoding="utf-8")
+    assert "Math.max(Math.round((curClock + 0.5) * 100) / 100" in editor_code
+
+    node_script = """
+    function computeAudioEnd(curClock, duration) {
+      return Math.max(Math.round((curClock + 0.5) * 100) / 100, Math.round(Math.min(duration, curClock + 5) * 100) / 100);
+    }
+    function computeSfxEnd(curClock, duration) {
+      return Math.max(Math.round((curClock + 0.5) * 100) / 100, Math.round(Math.min(duration, curClock + 1) * 100) / 100);
+    }
+
+    // Normal insertion within timeline
+    if (computeAudioEnd(2.0, 30.0) !== 7.0) throw new Error('Audio end within duration failed');
+    if (computeSfxEnd(2.0, 30.0) !== 3.0) throw new Error('SFX end within duration failed');
+
+    // Insertion at end of timeline (curClock === duration)
+    if (computeAudioEnd(30.0, 30.0) !== 30.5) throw new Error('Audio end at duration failed');
+    if (computeSfxEnd(30.0, 30.0) !== 30.5) throw new Error('SFX end at duration failed');
+
+    // Insertion past end of timeline (curClock > duration)
+    if (computeAudioEnd(35.0, 30.0) !== 35.5) throw new Error('Audio end beyond duration failed');
+    if (computeSfxEnd(35.0, 30.0) !== 35.5) throw new Error('SFX end beyond duration failed');
+
+    console.log('CLAMP_OK');
+    """
+    proc = subprocess.run(["node", "-e", node_script], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    assert "CLAMP_OK" in proc.stdout
+
+
+def test_engine_stop_active_cues_on_pause_and_seek():
+    engine_code = (ROOT / "template" / "engine.js").read_text(encoding="utf-8")
+    assert "const activeNodes = [];" in engine_code
+    assert "function stopActiveCues()" in engine_code
+    assert "if (!playing) stopActiveCues();" in engine_code
+    assert "stopActiveCues();" in engine_code

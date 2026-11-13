@@ -307,11 +307,14 @@ class RangeHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_post_rebuild(self):
         scripts_dir = os.path.dirname(os.path.abspath(__file__))
         cuts_script = os.path.join(scripts_dir, 'cuts.py')
+        subtitles_script = os.path.join(scripts_dir, 'subtitles.py')
         build_script = os.path.join(scripts_dir, 'build.py')
         try:
             import subprocess
             if os.path.isfile(cuts_script):
                 subprocess.run([sys.executable, cuts_script, '--project', self.project_dir], check=True)
+            if os.path.isfile(subtitles_script):
+                subprocess.run([sys.executable, subtitles_script, '--project', self.project_dir], check=True)
             if os.path.isfile(build_script):
                 subprocess.run([sys.executable, build_script, '--project', self.project_dir], check=True)
             self._send_json({'ok': True})
@@ -361,13 +364,30 @@ class RangeHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         length = int(self.headers.get('Content-Length', 0))
-        body = self.rfile.read(length)
-
         src_dir = os.path.join(self.project_dir, 'src')
         os.makedirs(src_dir, exist_ok=True)
         dest_path = os.path.join(src_dir, safe_name)
-        with open(dest_path, 'wb') as f:
-            f.write(body)
+        tmp_path = dest_path + '.tmp'
+
+        remaining = length
+        chunk_size = 65536
+        try:
+            with open(tmp_path, 'wb') as f:
+                while remaining > 0:
+                    chunk = self.rfile.read(min(remaining, chunk_size))
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    remaining -= len(chunk)
+            os.replace(tmp_path, dest_path)
+        except Exception as e:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+            self._send_json({'ok': False, 'error': f'Upload failed: {e}'}, status=500)
+            return
 
         self._send_json({
             'ok': True,
@@ -397,6 +417,7 @@ class RangeHandler(http.server.SimpleHTTPRequestHandler):
         transcribe_script = os.path.join(scripts_dir, 'transcribe.py')
         auto_cut_script = os.path.join(scripts_dir, 'auto_cut.py')
         cuts_script = os.path.join(scripts_dir, 'cuts.py')
+        subtitles_script = os.path.join(scripts_dir, 'subtitles.py')
         build_script = os.path.join(scripts_dir, 'build.py')
 
         try:
@@ -418,6 +439,9 @@ class RangeHandler(http.server.SimpleHTTPRequestHandler):
 
             if os.path.isfile(cuts_script):
                 subprocess.run([sys.executable, cuts_script, '--project', self.project_dir], check=True)
+
+            if os.path.isfile(subtitles_script):
+                subprocess.run([sys.executable, subtitles_script, '--project', self.project_dir], check=True)
 
             if os.path.isfile(build_script):
                 subprocess.run([sys.executable, build_script, '--project', self.project_dir], check=True)
