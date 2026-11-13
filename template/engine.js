@@ -33,6 +33,7 @@
         overrides: {}
       },
       speed_ranges: [],
+      deleted_ranges: [],
       media_overlays: [],
       audio_clips: []
     };
@@ -95,9 +96,24 @@
     for (const clip of currentEdits.audio_clips || []) {
       if (clip.type === 'sfx') {
         SFX.push({
+          id: clip.id,
+          type: 'sfx',
           t: +Number(clip.start).toFixed(3),
           name: clip.name,
-          gain: clip.gain || 0
+          gain: clip.gain_db ?? clip.gain ?? 0,
+          trim_start: clip.trim_start || 0,
+          duration: (clip.end != null && clip.end > clip.start) ? (clip.end - clip.start) : undefined
+        });
+      } else if (clip.type === 'audio') {
+        SFX.push({
+          id: clip.id,
+          type: 'audio',
+          t: +Number(clip.start).toFixed(3),
+          name: clip.name,
+          url: clip.url || ('../' + (clip.src || ('assets/' + clip.name))),
+          gain: clip.gain_db ?? clip.gain ?? 0,
+          trim_start: clip.trim_start || 0,
+          duration: (clip.end != null && clip.end > clip.start) ? (clip.end - clip.start) : undefined
         });
       }
     }
@@ -129,24 +145,49 @@
   /* ---- preview sound: effects play live through WebAudio ---- */
   let actx = null, muted = Q.has('mute');
   const buffers = {};
+  const activeNodes = [];
+
+  function stopActiveCues() {
+    while (activeNodes.length) {
+      const n = activeNodes.pop();
+      try { n.stop(); } catch (e) {}
+    }
+  }
+
   async function loadSfx() {
     if (STILL || !SFX.length) return;
     if (!actx) actx = new AudioContext();
-    for (const name of new Set(SFX.map((c) => c.name))) {
+    for (const c of SFX) {
+      const key = c.url || c.name;
+      if (buffers[key] || (c.name && buffers[c.name])) continue;
       try {
-        const r = await fetch(`sfx/${name}.wav`);
-        if (r.ok) buffers[name] = await actx.decodeAudioData(await r.arrayBuffer());
-      } catch (e) { /* missing effect file */ }
+        const fetchUrl = c.type === 'audio' ? (c.url || ('../assets/' + c.name)) : `sfx/${c.name}.wav`;
+        const r = await fetch(fetchUrl);
+        if (r.ok) {
+          const buf = await actx.decodeAudioData(await r.arrayBuffer());
+          buffers[key] = buf;
+          if (c.name) buffers[c.name] = buf;
+        }
+      } catch (e) { /* missing audio/effect file */ }
     }
   }
   function playCue(c) {
-    if (muted || !actx || !buffers[c.name]) return;
+    if (muted || !actx) return;
+    const buf = (c.url && buffers[c.url]) || (c.name && buffers[c.name]) || buffers[c.name];
+    if (!buf) return;
     if (actx.state === 'suspended') actx.resume();
     const src = actx.createBufferSource(), g = actx.createGain();
-    src.buffer = buffers[c.name];
-    g.gain.value = Math.pow(10, (c.gain || 0) / 20);
+    src.buffer = buf;
+    const gainDb = c.gain_db ?? c.gain ?? 0;
+    g.gain.value = Math.pow(10, gainDb / 20);
     src.connect(g).connect(actx.destination);
-    src.start();
+    const offset = Math.max(0, c.trim_start || 0);
+    if (c.duration != null && c.duration > 0) {
+      src.start(0, offset, c.duration);
+    } else {
+      src.start(0, offset);
+    }
+    activeNodes.push(src);
   }
 
   /* ---- clock ---- */
@@ -235,9 +276,14 @@
   function apply(t) {
     TL.seek(Math.max(1e-4, Math.min(t, TL.duration() || t)), false);
 
+    // If t is inside any deleted range, hide subtitles
+    const isDeleted = (currentEdits.deleted_ranges || []).some(
+      (del) => t >= del.start && t < del.end
+    );
+
     // Render 3-word subtitles box
     const subCfg = currentEdits.subtitles || {};
-    if (subCfg.enabled !== false && subtitlesBox && subText) {
+    if (!isDeleted && subCfg.enabled !== false && subtitlesBox && subText) {
       const cue = subtitleCues.find((c) => t >= c.start && t <= c.end);
       if (cue) {
         subText.textContent = cue.text;
@@ -287,7 +333,16 @@
       } else {
         clock += dt;
       }
-      if (clock >= duration) { clock = duration; playing = false; if (hasVideo()) video.pause(); }
+      if (clock >= duration) { clock = duration; playing = false; if (hasVideo()) video.pause(); stopActiveCues(); }
+
+      // Real-time skipping of deleted ranges during preview
+      const activeDel = (currentEdits.deleted_ranges || []).find(
+        (del) => clock >= del.start && clock < del.end - 0.02
+      );
+      if (activeDel) {
+        seek(activeDel.end);
+      }
+
       for (const c of SFX) if (c.t > prevClock && c.t <= clock) playCue(c);
     }
     prevClock = clock;
@@ -299,9 +354,11 @@
   function play() {
     playing = !playing;
     if (hasVideo()) playing ? video.play() : video.pause();
+    if (!playing) stopActiveCues();
   }
 
   function seek(t) {
+    stopActiveCues();
     clock = prevClock = Math.max(0, Math.min(duration, t));
     if (hasVideo()) video.currentTime = clock;
     apply(clock);

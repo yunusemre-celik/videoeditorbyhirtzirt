@@ -28,6 +28,7 @@ except ImportError:
         chunk_three_words = None
 
 ALLOWED_EXTENSIONS = {'.mp3', '.wav', '.mp4', '.webm', '.png', '.jpg', '.jpeg', '.webp'}
+ALLOWED_SOURCE_EXTENSIONS = {'.mp4', '.mov', '.webm', '.mkv'}
 
 MEDIA_TYPE_MAP = {
     '.png': 'image',
@@ -60,9 +61,31 @@ def default_edits() -> dict:
             "overrides": {},
         },
         "speed_ranges": [],
+        "deleted_ranges": [],
         "media_overlays": [],
         "audio_clips": [],
     }
+
+
+def sanitize_source_filename(filename: str) -> str:
+    """Sanitize and validate a source video filename.
+
+    Strips directory traversal, replaces spaces and unsafe characters with '_',
+    and verifies the extension is an allowed video source type. Raises ValueError on
+    invalid, hidden, or disallowed files.
+    """
+    if not filename or not isinstance(filename, str):
+        raise ValueError("Filename is empty or invalid")
+    base = os.path.basename(filename.replace('\\', '/')).strip()
+    if not base or base.startswith('.'):
+        raise ValueError(f"Invalid or hidden filename: {filename}")
+    name_part, ext = os.path.splitext(base)
+    if not name_part or not ext or ext.lower() not in ALLOWED_SOURCE_EXTENSIONS:
+        raise ValueError(f"Invalid filename or unsupported extension: {filename}")
+    safe_name_part = re.sub(r'[^a-zA-Z0-9._-]', '_', name_part)
+    if not safe_name_part:
+        raise ValueError(f"Filename contains no valid characters: {filename}")
+    return f"{safe_name_part}{ext}"
 
 
 def sanitize_asset_filename(filename: str) -> str:
@@ -135,6 +158,8 @@ class RangeHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_get_assets()
         elif clean_path == '/api/subtitles':
             self._handle_get_subtitles()
+        elif clean_path == '/api/project-status':
+            self._handle_get_project_status()
         else:
             super().do_GET()
 
@@ -149,6 +174,12 @@ class RangeHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_post_assets()
         elif clean_path == '/api/rebuild':
             self._handle_post_rebuild()
+        elif clean_path == '/api/source-video':
+            self._handle_post_source_video()
+        elif clean_path == '/api/init-project':
+            self._handle_post_init_project()
+        elif clean_path == '/api/export':
+            self._handle_post_export()
         else:
             self._send_json({'ok': False, 'error': 'Endpoint not found'}, status=404)
 
@@ -276,14 +307,173 @@ class RangeHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_post_rebuild(self):
         scripts_dir = os.path.dirname(os.path.abspath(__file__))
         cuts_script = os.path.join(scripts_dir, 'cuts.py')
+        subtitles_script = os.path.join(scripts_dir, 'subtitles.py')
         build_script = os.path.join(scripts_dir, 'build.py')
         try:
             import subprocess
             if os.path.isfile(cuts_script):
                 subprocess.run([sys.executable, cuts_script, '--project', self.project_dir], check=True)
+            if os.path.isfile(subtitles_script):
+                subprocess.run([sys.executable, subtitles_script, '--project', self.project_dir], check=True)
             if os.path.isfile(build_script):
                 subprocess.run([sys.executable, build_script, '--project', self.project_dir], check=True)
             self._send_json({'ok': True})
+        except Exception as e:
+            self._send_json({'ok': False, 'error': str(e)}, status=500)
+
+    def _handle_get_project_status(self):
+        prog_path = os.path.join(self.project_dir, 'work', 'program.json')
+        proxy_path = os.path.join(self.project_dir, 'work', 'proxy.mp4')
+        final_path = os.path.join(self.project_dir, 'out', 'FINAL.mp4')
+
+        has_program = os.path.isfile(prog_path)
+        has_proxy = os.path.isfile(proxy_path)
+        has_final = os.path.isfile(final_path)
+
+        src_dir = os.path.join(self.project_dir, 'src')
+        src_files = []
+        if os.path.isdir(src_dir):
+            for entry in sorted(os.listdir(src_dir)):
+                if entry.startswith('.'):
+                    continue
+                full_path = os.path.join(src_dir, entry)
+                if not os.path.isfile(full_path):
+                    continue
+                ext = os.path.splitext(entry)[1].lower()
+                if ext in ALLOWED_SOURCE_EXTENSIONS:
+                    src_files.append(entry)
+
+        self._send_json({
+            'ok': True,
+            'has_program': has_program,
+            'has_proxy': has_proxy,
+            'has_final': has_final,
+            'src_files': src_files,
+        })
+
+    def _handle_post_source_video(self):
+        filename = self.headers.get('X-Filename')
+        if not filename:
+            self._send_json({'ok': False, 'error': 'Missing X-Filename header'}, status=400)
+            return
+
+        try:
+            safe_name = sanitize_source_filename(filename)
+        except ValueError as e:
+            self._send_json({'ok': False, 'error': str(e)}, status=400)
+            return
+
+        length = int(self.headers.get('Content-Length', 0))
+        src_dir = os.path.join(self.project_dir, 'src')
+        os.makedirs(src_dir, exist_ok=True)
+        dest_path = os.path.join(src_dir, safe_name)
+        tmp_path = dest_path + '.tmp'
+
+        remaining = length
+        chunk_size = 65536
+        try:
+            with open(tmp_path, 'wb') as f:
+                while remaining > 0:
+                    chunk = self.rfile.read(min(remaining, chunk_size))
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    remaining -= len(chunk)
+            os.replace(tmp_path, dest_path)
+        except Exception as e:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+            self._send_json({'ok': False, 'error': f'Upload failed: {e}'}, status=500)
+            return
+
+        self._send_json({
+            'ok': True,
+            'file': safe_name,
+        })
+
+    def _handle_post_init_project(self):
+        src_dir = os.path.join(self.project_dir, 'src')
+        candidates = []
+        if os.path.isdir(src_dir):
+            for entry in sorted(os.listdir(src_dir)):
+                if entry.startswith('.'):
+                    continue
+                full_path = os.path.join(src_dir, entry)
+                if not os.path.isfile(full_path):
+                    continue
+                ext = os.path.splitext(entry)[1].lower()
+                if ext in ALLOWED_SOURCE_EXTENSIONS:
+                    candidates.append(entry)
+
+        if not candidates:
+            self._send_json({'ok': False, 'error': 'No source video files found in src/'}, status=400)
+            return
+
+        stems = [os.path.splitext(f)[0] for f in candidates]
+        scripts_dir = os.path.dirname(os.path.abspath(__file__))
+        transcribe_script = os.path.join(scripts_dir, 'transcribe.py')
+        auto_cut_script = os.path.join(scripts_dir, 'auto_cut.py')
+        cuts_script = os.path.join(scripts_dir, 'cuts.py')
+        subtitles_script = os.path.join(scripts_dir, 'subtitles.py')
+        build_script = os.path.join(scripts_dir, 'build.py')
+
+        try:
+            import subprocess
+            if os.path.isfile(transcribe_script):
+                for f in candidates:
+                    subprocess.run(
+                        [sys.executable, transcribe_script, '--project', self.project_dir, os.path.join(self.project_dir, 'src', f)],
+                        check=True,
+                    )
+
+            edl_path = os.path.join(self.project_dir, 'work', 'edl.json')
+            if not os.path.isfile(edl_path):
+                if os.path.isfile(auto_cut_script):
+                    subprocess.run(
+                        [sys.executable, auto_cut_script, '--project', self.project_dir],
+                        check=True,
+                    )
+
+            if os.path.isfile(cuts_script):
+                subprocess.run([sys.executable, cuts_script, '--project', self.project_dir], check=True)
+
+            if os.path.isfile(subtitles_script):
+                subprocess.run([sys.executable, subtitles_script, '--project', self.project_dir], check=True)
+
+            if os.path.isfile(build_script):
+                subprocess.run([sys.executable, build_script, '--project', self.project_dir], check=True)
+
+            self._send_json({'ok': True, 'clips': stems})
+        except Exception as e:
+            self._send_json({'ok': False, 'error': str(e)}, status=500)
+
+    def _handle_post_export(self):
+        scripts_dir = os.path.dirname(os.path.abspath(__file__))
+        render_script = os.path.join(scripts_dir, 'render.mjs')
+        mix_script = os.path.join(scripts_dir, 'mix.py')
+        port = getattr(self.server, 'server_port', 5600)
+        out_dir = os.path.join(self.project_dir, 'out')
+        frames_dir = os.path.join(out_dir, 'frames')
+        final_out = os.path.join(out_dir, 'FINAL.mp4')
+        os.makedirs(out_dir, exist_ok=True)
+
+        try:
+            import subprocess
+            if os.path.isfile(render_script):
+                subprocess.run(
+                    ['node', render_script, f'http://127.0.0.1:{port}/scene/', '--out', frames_dir, '--workers', '4', '--dpr', '2'],
+                    check=True,
+                )
+            if os.path.isfile(mix_script):
+                subprocess.run(
+                    [sys.executable, mix_script, '--project', self.project_dir, '--video', frames_dir, '--out', final_out],
+                    check=True,
+                )
+
+            self._send_json({'ok': True, 'download_url': '../out/FINAL.mp4'})
         except Exception as e:
             self._send_json({'ok': False, 'error': str(e)}, status=500)
 
@@ -338,6 +528,7 @@ def create_server(project: str, port: int = 5600) -> http.server.ThreadingHTTPSe
     handler = functools.partial(RangeHandler, directory=project_root)
     srv = http.server.ThreadingHTTPServer(('127.0.0.1', port), handler)
     srv.project_root = project_root
+    srv.server_port = srv.server_address[1]
     return srv
 
 

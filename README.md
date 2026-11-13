@@ -87,6 +87,20 @@ python scripts/serve.py --project . --port 5600
 Key Features:
 - **Two-way sync via `work/edits.json`**: Changes in the browser are written directly to disk via REST endpoints (`GET/POST /api/edits`).
 - **20-step Undo / Redo**: Keyboard shortcuts (`Ctrl+Z`, `Ctrl+Y`) and header buttons.
+- **Top-Bar Studio Controls**:
+  - `⚡ Rebuild` (`#btn-rebuild`): Saves edits, calls `POST /api/rebuild` to regenerate `work/program.json`, `work/subtitles.json`, and `work/proxy.mp4`, and refreshes the preview.
+  - `🎬 Export MP4` (`#btn-export`): Triggers full high-res render (`POST /api/export`), headless Chrome animation capture, and audio mixing into `out/FINAL.mp4` with direct browser download.
+  - `📱 Safe Zone` (`#btn-safe-zone`): Toggles TikTok / Instagram Reels safe guide overlay (action buttons rail and caption area) on the stage preview without affecting headless frame rendering.
+- **Source Footage Upload & One-Click Auto-Cut**:
+  - Left panel supports direct video upload (`.mp4`, `.mov`, `.webm`, `.mkv`) into `src/` via `POST /api/source-video`.
+  - `⚡ Auto-Cut & Transcribe` (`POST /api/init-project`): Executes the entire ingestion pipeline (`transcribe.py`, `auto_cut.py`, `cuts.py`, `subtitles.py`, `build.py`) in one click.
+- **Transcript Cuts (`edits.deleted_ranges`)**:
+  - Cut unwanted phrases directly from the Subtitles tab (`✂️` button). Real-time preview skips cut ranges dynamically via WebAudio/clock seeking, and `⚡ Rebuild` slices them permanently from video/audio.
+  - "Deleted Cuts" section provides one-click restoration.
+- **Audio Inspector & 4th Timeline Track (`#track-audio`)**:
+  - Inspector `Audio` tab with start, end, trim start, and gain dB (`-24` to `+12 dB`) controls.
+  - Live WebAudio decoding and playback for both custom music tracks and synthesized SFX.
+  - Interactive segment drag and edge-trim handles (`.seg-handle.left`, `.seg-handle.right`) on Overlays, Speed, and Audio tracks with live time updates.
 - **Normalized `0..1` Drag & Resize Bounding Boxes**: Easily position and scale subtitle boxes and media overlays.
 - **Asset Tray**: Drag-and-drop file upload for supported assets (`.mp3`, `.wav`, `.mp4`, `.webm`, `.png`, `.jpg`, `.jpeg`, `.webp`) into `assets/` via `POST /api/assets`.
 - **Speed Segment Editor**: Add, adjust, or remove speed ranges (`0.25x` to `4.0x`) directly on the timeline.
@@ -165,8 +179,12 @@ python -m pip install -r requirements.txt
 4. **Dinamik 3 Kelimelik Altyazılar (`scripts/subtitles.py`):** Reels ve TikTok için ideal, göz yormayan, karaoke renk geçişi içermeyen 1-3 kelimelik vurucu altyazılar üretir (`subtitles.json` ve `subtitles.srt`).
 5. **Önizleme Medyası Oluşturma (`scripts/build.py`):** `atempo` ile ses tonunu bozmadan hızlandırıp yavaşlatan örnekleme hassasiyetinde ses ve `setpts` ile kare hassasiyetinde video üretir (`work/prog.wav`, `work/proxy.mp4`).
 6. **Etkileşimli Web Stüdyosu (`scripts/serve.py`):** `http://127.0.0.1:5600/scene/` adresinde çalışan Canva/CapCut tarzı editör:
-   - `work/edits.json` ile çift yönlü anlık senkronizasyon.
+   - `work/edits.json` ile çift yönlü anlık senkronizasyon (`GET/POST /api/edits`).
    - 20 adımlı Geri Al / Yinele (Undo/Redo: `Ctrl+Z`, `Ctrl+Y`).
+   - **Üst Menü Kontrolleri**: Tek tıkla `⚡ Yeniden Oluştur` (`POST /api/rebuild`), `🎬 MP4 Dışa Aktar` (`POST /api/export` -> `out/FINAL.mp4` otomatik indirme) ve `📱 Güvenli Bölge` (TikTok / Instagram Reels kılavuz çizgileri).
+   - **Ham Video Yükleme & Otomatik Kurgu**: Sol panelden `src/` klasörüne video yükleme (`POST /api/source-video`) ve tek tıkla otomatik deşifre + kesim (`POST /api/init-project`).
+   - **Transkriptten Kesim**: Altyazı sekmesindeki `✂️` butonuyla istenmeyen ifadeleri çıkarma (`deleted_ranges`), önizlemede anlık atlama ve tek tıkla geri alma.
+   - **Ses Denetçisi & 4. Kanal (`#track-audio`)**: Özel müzik parçaları ve SFX'ler için kazanç (gain dB: `-24` ile `+12 dB`), kırpma (`trim_start`), WebAudio canlı çalma ve zaman çizelgesinde sürükle/uçlardan kırpma tutamaçları (`.seg-handle`).
    - Normalleştirilmiş `0..1` koordinatlarıyla sürükle-bırak ve yeniden boyutlandırma tutamaçları.
    - Desteklenen medya dosyaları (`.mp3`, `.wav`, `.mp4`, `.webm`, `.png`, `.jpg`, `.jpeg`, `.webp`) için sürükle-bırak Medya Tepsisi (Asset Tray).
    - Zaman çizelgesinde kesit hız düzenleyici (`0.25x` - `4.0x`).

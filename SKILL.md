@@ -103,6 +103,20 @@ python scripts/serve.py --project . --port 5600
 Key Studio Features:
 - **Two-Way Sync via `work/edits.json`:** Every visual change made in the browser studio is immediately saved to disk; external edits to `work/edits.json` update the studio live via `GET /api/edits` and `POST /api/edits`.
 - **20-Step Undo / Redo:** Full history state stack (`Ctrl+Z` / `Ctrl+Y`).
+- **Top-Bar Studio Controls:**
+  - `⚡ Rebuild` (`#btn-rebuild` -> `POST /api/rebuild`): Automatically regenerates `work/program.json`, `work/subtitles.json`, and `work/proxy.mp4` when speed or deleted ranges change, then refreshes the preview.
+  - `🎬 Export MP4` (`#btn-export` -> `POST /api/export`): Runs high-res build, headless Chrome frame render, and audio mixing into `out/FINAL.mp4`, triggering automatic browser download.
+  - `📱 Safe Zone` (`#btn-safe-zone`): Toggles TikTok / Instagram Reels safe guide overlay (action buttons rail and caption area) on the stage preview without affecting headless frame rendering.
+- **Source Footage Upload & One-Click Auto-Cut:**
+  - Left panel supports direct video upload (`.mp4`, `.mov`, `.webm`, `.mkv`) into `src/` via `POST /api/source-video`.
+  - `⚡ Auto-Cut & Transcribe` (`POST /api/init-project`): Executes the entire ingestion pipeline (`transcribe.py`, `auto_cut.py`, `cuts.py`, `subtitles.py`, `build.py`) in one click.
+- **Transcript Cuts (`edits.deleted_ranges`):**
+  - Cut unwanted phrases directly from the Subtitles tab (`✂️` button). Real-time preview skips cut ranges dynamically via WebAudio/clock seeking, and `⚡ Rebuild` slices them permanently from video/audio.
+  - "Deleted Cuts" section provides one-click restoration (`data-restore-del`).
+- **Audio Inspector & 4th Timeline Track (`#track-audio`):**
+  - Inspector `Audio` tab (`data-tab="audio"`) with start, end, trim start, and gain dB (`-24` to `+12 dB`) controls.
+  - Live WebAudio decoding and playback for both custom music tracks and synthesized SFX.
+  - Interactive segment drag and edge-trim handles (`.seg-handle.left`, `.seg-handle.right`) on Overlays, Speed, and Audio tracks with live time updates.
 - **Normalized Drag & Resize Bounding Boxes:** Visual handles with `0..1` normalized coordinates for positioning subtitles and media overlays across any aspect ratio.
 - **Asset Tray:** Direct drag-and-drop file upload for supported media assets (`.mp3`, `.wav`, `.mp4`, `.webm`, `.png`, `.jpg`, `.jpeg`, `.webp`) into `assets/` via `POST /api/assets`.
 - **Speed Segment Editor:** Add and tweak speed ranges (`0.25x` to `4.0x`) directly on the timeline.
